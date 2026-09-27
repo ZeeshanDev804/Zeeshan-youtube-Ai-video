@@ -1,0 +1,110 @@
+name: ZEESHAN AI LABS - Core Test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+  pull_request:
+
+  workflow_dispatch:
+
+jobs:
+  core-test:
+    name: Core Project Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install eSpeak NG
+        run: |
+          sudo apt-get install -y espeak-ng
+
+      - name: Check Node.js
+        run: |
+          node --version
+          npm --version
+
+      - name: Check FFmpeg
+        run: |
+          ffmpeg -version
+          ffprobe -version
+
+      - name: Check eSpeak NG
+        run: |
+          espeak-ng --version
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Verify package
+        run: npm list --depth=0
+
+      - name: Check JavaScript module imports
+        run: |
+          node --input-type=module -e "import('./src/config/index.mjs').then(()=>console.log('config: OK'))"
+          node --input-type=module -e "import('./src/store.mjs').then(()=>console.log('store: OK'))"
+          node --input-type=module -e "import('./src/models/scriptEngine.mjs').then(()=>console.log('scriptEngine: OK'))"
+          node --input-type=module -e "import('./src/models/visualEngine.mjs').then(()=>console.log('visualEngine: OK'))"
+          node --input-type=module -e "import('./src/models/voiceEngine.mjs').then(()=>console.log('voiceEngine: OK'))"
+          node --input-type=module -e "import('./src/models/renderEngine.mjs').then(()=>console.log('renderEngine: OK'))"
+
+      - name: Check orchestrator syntax
+        run: |
+          node --check src/orchestrator.mjs
+
+      - name: Check all source JavaScript files
+        run: |
+          find src -type f \( -name "*.js" -o -name "*.mjs" \) -print0 | while IFS= read -r -d '' file
+          do
+            echo "Checking: $file"
+            node --check "$file"
+          done
+
+      - name: Test FFmpeg video creation
+        run: |
+          mkdir -p test_artifacts
+
+          ffmpeg -y \
+            -f lavfi \
+            -i color=c=black:s=1080x1920:d=2 \
+            -c:v libx264 \
+            -pix_fmt yuv420p \
+            test_artifacts/core_test.mp4
+
+      - name: Validate test video
+        run: |
+          test -f test_artifacts/core_test.mp4
+
+          ffprobe \
+            -v error \
+            -select_streams v:0 \
+            -show_entries stream=width,height \
+            -of csv=s=x:p=0 \
+            test_artifacts/core_test.mp4
+
+          ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 \
+            test_artifacts/core_test.mp4
+
+      - name: Final result
+        run: |
+          echo "======================================"
+          echo "ZEESHAN AI LABS CORE TEST PASSED"
+          echo "======================================"
