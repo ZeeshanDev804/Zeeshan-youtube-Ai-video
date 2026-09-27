@@ -23,7 +23,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       - name: Install FFmpeg
         run: |
@@ -51,23 +50,38 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Verify package
+      - name: Verify installed packages
         run: npm list --depth=0
 
-      - name: Check JavaScript module imports
+      - name: Check config module
         run: |
           node --input-type=module -e "import('./src/config/index.mjs').then(()=>console.log('config: OK'))"
+
+      - name: Check store module
+        run: |
           node --input-type=module -e "import('./src/store.mjs').then(()=>console.log('store: OK'))"
+
+      - name: Check script engine
+        run: |
           node --input-type=module -e "import('./src/models/scriptEngine.mjs').then(()=>console.log('scriptEngine: OK'))"
+
+      - name: Check visual engine
+        run: |
           node --input-type=module -e "import('./src/models/visualEngine.mjs').then(()=>console.log('visualEngine: OK'))"
+
+      - name: Check voice engine
+        run: |
           node --input-type=module -e "import('./src/models/voiceEngine.mjs').then(()=>console.log('voiceEngine: OK'))"
+
+      - name: Check render engine
+        run: |
           node --input-type=module -e "import('./src/models/renderEngine.mjs').then(()=>console.log('renderEngine: OK'))"
 
       - name: Check orchestrator syntax
         run: |
           node --check src/orchestrator.mjs
 
-      - name: Check all source JavaScript files
+      - name: Check all source files
         run: |
           find src -type f \( -name "*.js" -o -name "*.mjs" \) -print0 | while IFS= read -r -d '' file
           do
@@ -75,7 +89,7 @@ jobs:
             node --check "$file"
           done
 
-      - name: Test FFmpeg video creation
+      - name: Test FFmpeg
         run: |
           mkdir -p test_artifacts
 
@@ -86,10 +100,11 @@ jobs:
             -pix_fmt yuv420p \
             test_artifacts/core_test.mp4
 
-      - name: Validate test video
+      - name: Validate FFmpeg test video
         run: |
           test -f test_artifacts/core_test.mp4
 
+          echo "Video resolution:"
           ffprobe \
             -v error \
             -select_streams v:0 \
@@ -97,6 +112,7 @@ jobs:
             -of csv=s=x:p=0 \
             test_artifacts/core_test.mp4
 
+          echo "Video duration:"
           ffprobe \
             -v error \
             -show_entries format=duration \
