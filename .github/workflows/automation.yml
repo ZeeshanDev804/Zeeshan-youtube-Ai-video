@@ -24,52 +24,42 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Create Isolated Output Directory
-        run: |
-          mkdir -p output_media
-          mkdir -p /tmp/shorts_output
-
-      - name: Run Video Generator with Trends
+      - name: Run Orchestrator Script with Trends
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TREND_REGION: "US,GB,EU"
           ENABLE_GOOGLE_TRENDS: "true"
           ENABLE_YOUTUBE_TRENDS: "true"
-          OUTPUT_DIR: "output_media"
         run: |
-          echo "=== Starting USA/UK/EU High-Security Video Engine ==="
-          
-          # Directly target automationOrchestrator.js specifically
-          if [ -f "automationOrchestrator.js" ]; then
-            node automationOrchestrator.js
-          elif [ -f "src/automationOrchestrator.js" ]; then
-            node src/automationOrchestrator.js
+          echo "=== Executing src/orchestrator.mjs ==="
+          if [ -f "src/orchestrator.mjs" ]; then
+            node src/orchestrator.mjs
+          elif [ -f "orchestrator.mjs" ]; then
+            node orchestrator.mjs
           else
-            TARGET_FILE=$(find . -not -path '*/node_modules/*' -name "automationOrchestrator.js" | head -n 1)
-            if [ -n "$TARGET_FILE" ]; then
-              node "$TARGET_FILE"
+            echo "Direct searching for orchestrator file..."
+            TARGET=$(find . -not -path '*/node_modules/*' -name "*orchestrator*.mjs" -o -name "*orchestrator*.js" | head -n 1)
+            if [ -n "$TARGET" ]; then
+              node "$TARGET"
             else
-              echo "CRITICAL ERROR: automationOrchestrator.js file not found in repo!"
+              echo "CRITICAL: Script file not found!"
               exit 1
             fi
           fi
 
-      - name: Secure and Collect Generated Video
+      - name: Collect Generated Video Artifacts
         if: always()
         run: |
-          echo "=== Collecting generated videos from all locations ==="
-          mkdir -p final_video_download
-          
-          # Find all mp4 files excluding node_modules and copy them
-          find . -not -path '*/node_modules/*' -name "*.mp4" -exec cp {} final_video_download/ \;
-          
-          echo "=== Contents of final_video_download folder ==="
-          ls -la final_video_download/
+          echo "=== Collecting generated MP4 files ==="
+          mkdir -p output_artifacts
+          find . -not -path '*/node_modules/*' -name "*.mp4" -exec cp {} output_artifacts/ \;
+          echo "Files inside output_artifacts:"
+          ls -la output_artifacts/
 
-      - name: Upload Generated Short Video
+      - name: Upload Video Artifact
         uses: actions/upload-artifact@v4
         with:
           name: generated-youtube-short
-          path: final_video_download/
+          path: output_artifacts/
           if-no-files-found: warn
