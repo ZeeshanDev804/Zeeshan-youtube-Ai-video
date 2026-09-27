@@ -1,0 +1,14 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
+export const config = {
+  pexelsApiKey: process.env.PEXELS_API_KEY || '',
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
+  videoConfig: {
+    width: 1080,
+    height: 1920,
+    minDuration: 20,
+    maxDuration: 59,
+    fps: 30
+  }
+};
