@@ -1,60 +1,141 @@
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
 import https from 'https';
+import { execFileSync } from 'child_process';
+
+import config from './config/index.mjs';
+
+import {
+  generateScript,
+  generateMultipleScripts
+} from './models/scriptEngine.mjs';
+
+import {
+  buildSceneVisuals
+} from './models/visualEngine.mjs';
+
+import {
+  generateVoiceover
+} from './models/voiceEngine.mjs';
+
+import {
+  renderFinalVideo
+} from './models/renderEngine.mjs';
+
+import {
+  addProject,
+  addScript,
+  addRender,
+  addHistory
+} from './store.mjs';
+
 
 const OUTPUT_DIR = path.resolve('output_artifacts');
 const VISUAL_DIR = path.join(OUTPUT_DIR, 'visuals');
+const AUDIO_DIR = path.join(OUTPUT_DIR, 'audio');
+const FINAL_DIR = path.join(OUTPUT_DIR, 'final');
 
-const PEXELS_API_KEY = process.env.PEXELS_API_KEY;
-const TARGET_DURATION = 40;
-const WIDTH = 1080;
-const HEIGHT = 1920;
-
-const SCRIPT =
-  'Here is the top viral news from USA, UK and Europe today. Stay tuned for more trending updates!';
 
 function ensureDirectories() {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   fs.mkdirSync(VISUAL_DIR, { recursive: true });
+  fs.mkdirSync(AUDIO_DIR, { recursive: true });
+  fs.mkdirSync(FINAL_DIR, { recursive: true });
 }
 
-function run(command) {
-  console.log(`\n$ ${command}\n`);
-  execSync(command, {
-    stdio: 'inherit',
-    shell: '/bin/bash'
-  });
+
+function cleanText(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function escapeShell(value) {
-  return String(value)
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\$/g, '\\$')
-    .replace(/`/g, '\\`');
+
+function getTopicFromArguments() {
+  const args = process.argv.slice(2);
+
+  if (args.length === 0) {
+    return '';
+  }
+
+  return cleanText(
+    args
+      .filter(arg => !arg.startsWith('--'))
+      .join(' ')
+  );
 }
+
+
+function getCountFromArguments() {
+  const args = process.argv.slice(2);
+
+  const countArgument = args.find(
+    arg => arg.startsWith('--count=')
+  );
+
+  if (!countArgument) {
+    return 1;
+  }
+
+  const count = Number(
+    countArgument.split('=')[1]
+  );
+
+  if (!Number.isFinite(count)) {
+    return 1;
+  }
+
+  return Math.min(
+    Math.max(Math.floor(count), 1),
+    10
+  );
+}
+
+
+function getUserScriptFromEnvironment() {
+  return cleanText(
+    process.env.VIDEO_SCRIPT ||
+    process.env.SCRIPT ||
+    ''
+  );
+}
+
 
 function downloadFile(url, destination) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destination);
 
-    https
-      .get(url, response => {
+    const request = https.get(
+      url,
+      {
+        headers: {
+          'User-Agent': 'ZEESHAN-AI-LAB'
+        }
+      },
+      response => {
+
+        // Handle redirects
         if (
           response.statusCode >= 300 &&
           response.statusCode < 400 &&
           response.headers.location
         ) {
           file.close();
-          fs.unlinkSync(destination);
 
-          downloadFile(response.headers.location, destination)
+          if (fs.existsSync(destination)) {
+            fs.unlinkSync(destination);
+          }
+
+          downloadFile(
+            response.headers.location,
+            destination
+          )
             .then(resolve)
             .catch(reject);
 
           return;
         }
+
 
         if (response.statusCode !== 200) {
           file.close();
@@ -65,529 +146,722 @@ function downloadFile(url, destination) {
 
           reject(
             new Error(
-              `Download failed: HTTP ${response.statusCode} - ${url}`
+              `Visual download failed: HTTP ${response.statusCode}`
             )
           );
 
           return;
         }
 
+
         response.pipe(file);
 
+
         file.on('finish', () => {
-          file.close(resolve);
-        });
-      })
-      .on('error', error => {
-        file.close();
+          file.close(() => {
 
-        if (fs.existsSync(destination)) {
-          fs.unlinkSync(destination);
-        }
+            if (!fs.existsSync(destination)) {
+              reject(
+                new Error(
+                  'Downloaded visual file does not exist.'
+                )
+              );
 
-        reject(error);
-      });
-  });
-}
+              return;
+            }
 
-async function pexelsSearch(query) {
-  if (!PEXELS_API_KEY) {
-    throw new Error('PEXELS_API_KEY is missing.');
-  }
 
-  const url =
-    `https://api.pexels.com/videos/search?` +
-    `query=${encodeURIComponent(query)}` +
-    `per_page=10` +
-    `orientation=portrait`;
+            const size =
+              fs.statSync(destination).size;
 
-  return new Promise((resolve, reject) => {
-    const request = https.get(
-      url,
-      {
-        headers: {
-          Authorization: PEXELS_API_KEY
-        }
-      },
-      response => {
-        let data = '';
 
-        response.on('data', chunk => {
-          data += chunk;
-        });
+            if (size < 50000) {
+              fs.unlinkSync(destination);
 
-        response.on('end', () => {
-          if (response.statusCode !== 200) {
-            reject(
-              new Error(
-                `Pexels API failed: HTTP ${response.statusCode}`
-              )
-            );
-            return;
-          }
+              reject(
+                new Error(
+                  'Downloaded visual file is too small.'
+                )
+              );
 
-          try {
-            const parsed = JSON.parse(data);
-            resolve(parsed);
-          } catch (error) {
-            reject(error);
-          }
+              return;
+            }
+
+
+            resolve(destination);
+          });
         });
       }
     );
 
-    request.on('error', reject);
+
+    request.on('error', error => {
+      file.close();
+
+      if (fs.existsSync(destination)) {
+        fs.unlinkSync(destination);
+      }
+
+      reject(error);
+    });
   });
 }
 
-function selectVideoFile(video) {
-  if (!video || !Array.isArray(video.video_files)) {
-    return null;
-  }
 
-  const files = video.video_files
-    .filter(file => file && file.link)
-    .sort((a, b) => {
-      const aPortrait =
-        Number(a.height || 0) > Number(a.width || 0);
+async function downloadSceneVisuals(
+  sceneVisuals,
+  projectId
+) {
+  const projectVisualDir = path.join(
+    VISUAL_DIR,
+    projectId
+  );
 
-      const bPortrait =
-        Number(b.height || 0) > Number(b.width || 0);
+  fs.mkdirSync(
+    projectVisualDir,
+    {
+      recursive: true
+    }
+  );
 
-      if (aPortrait !== bPortrait) {
-        return bPortrait - aPortrait;
-      }
 
-      return Number(b.width || 0) - Number(a.width || 0);
-    });
+  const downloaded = [];
 
-  return files[0] || null;
-}
 
-async function findAndDownloadVisual(query, index) {
-  console.log(`\nSearching Pexels visuals: "${query}"`);
+  for (
+    let index = 0;
+    index < sceneVisuals.length;
+    index++
+  ) {
+    const scene = sceneVisuals[index];
 
-  const result = await pexelsSearch(query);
+    const url =
+      scene?.visual?.url;
 
-  if (!result.videos || result.videos.length === 0) {
-    throw new Error(`No Pexels videos found for: ${query}`);
-  }
 
-  for (const video of result.videos) {
-    const selectedFile = selectVideoFile(video);
+    if (!url) {
+      console.warn(
+        `[Orchestrator] Scene ${index + 1} has no visual URL.`
+      );
 
-    if (!selectedFile) {
       continue;
     }
 
+
     const destination = path.join(
-      VISUAL_DIR,
-      `scene_${index}.mp4`
+      projectVisualDir,
+      `scene_${index + 1}.mp4`
     );
+
 
     console.log(
-      `Downloading visual ${index} from Pexels...`
+      `[Orchestrator] Downloading scene ${index + 1}/${sceneVisuals.length}`
     );
 
-    await downloadFile(
-      selectedFile.link,
-      destination
-    );
 
-    if (
-      fs.existsSync(destination) &&
-      fs.statSync(destination).size > 50000
-    ) {
-      console.log(
-        `Visual ${index} downloaded successfully.`
+    try {
+      await downloadFile(
+        url,
+        destination
       );
 
-      return destination;
+
+      downloaded.push({
+        ...scene,
+        localPath: destination
+      });
+
+
+      console.log(
+        `[Orchestrator] Scene ${index + 1} downloaded.`
+      );
+
+    } catch (error) {
+      console.warn(
+        `[Orchestrator] Scene ${index + 1} failed: ${error.message}`
+      );
     }
   }
 
-  throw new Error(
-    `Could not download a valid Pexels visual for: ${query}`
-  );
-}
 
-function generateVoice(audioPath) {
-  console.log('\nCreating TTS audio...');
-
-  const safeScript = escapeShell(SCRIPT);
-  const safeAudio = escapeShell(audioPath);
-
-  run(
-    `espeak-ng "${safeScript}" -w "${safeAudio}" -s 140`
-  );
-
-  if (!fs.existsSync(audioPath)) {
-    throw new Error('Voiceover file was not created.');
+  if (downloaded.length === 0) {
+    throw new Error(
+      'NO_SCENE_VISUALS_DOWNLOADED'
+    );
   }
 
-  if (fs.statSync(audioPath).size < 1000) {
-    throw new Error('Voiceover file is empty or invalid.');
-  }
+
+  return downloaded;
 }
+
 
 function getMediaDuration(filePath) {
-  const safePath = escapeShell(filePath);
+  try {
+    const output = execFileSync(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
+        filePath
+      ],
+      {
+        encoding: 'utf8'
+      }
+    );
 
-  const output = execSync(
-    `ffprobe -v error -show_entries format=duration ` +
-      `-of default=noprint_wrappers=1:nokey=1 "${safePath}"`,
-    {
-      encoding: 'utf8'
-    }
-  );
 
-  return Number.parseFloat(output.trim());
+    const duration =
+      Number.parseFloat(
+        output.trim()
+      );
+
+
+    return Number.isFinite(duration)
+      ? duration
+      : 0;
+
+  } catch (error) {
+    console.warn(
+      `[Orchestrator] Could not read media duration: ${error.message}`
+    );
+
+    return 0;
+  }
 }
 
-function normalizeVisual(input, output, duration) {
-  const safeInput = escapeShell(input);
-  const safeOutput = escapeShell(output);
 
-  run(
-    `ffmpeg -y -stream_loop -1 -i "${safeInput}" ` +
-      `-t ${duration} ` +
-      `-vf "scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase,` +
-      `crop=${WIDTH}:${HEIGHT},` +
-      `setsar=1,fps=30" ` +
-      `-an ` +
-      `-c:v libx264 ` +
-      `-preset veryfast ` +
-      `-pix_fmt yuv420p ` +
-      `"${safeOutput}"`
-  );
+function getVideoDimensions(filePath) {
+  try {
+    const output = execFileSync(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-select_streams',
+        'v:0',
+        '-show_entries',
+        'stream=width,height',
+        '-of',
+        'csv=s=x:p=0',
+        filePath
+      ],
+      {
+        encoding: 'utf8'
+      }
+    );
+
+
+    return output.trim();
+
+  } catch {
+    return '';
+  }
 }
 
-function createConcatFile(files) {
-  const concatPath = path.join(
-    VISUAL_DIR,
-    'concat.txt'
-  );
 
-  const content = files
-    .map(file => {
-      const absolutePath = path
-        .resolve(file)
-        .replace(/'/g, "'\\''");
-
-      return `file '${absolutePath}'`;
-    })
-    .join('\n');
-
-  fs.writeFileSync(concatPath, content);
-
-  return concatPath;
-}
-
-function concatenateVisuals(files, output) {
-  if (files.length === 0) {
-    throw new Error('No visual files available.');
+function validateFinalVideo(filePath) {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(
+      'FINAL_VIDEO_MISSING'
+    );
   }
 
-  const concatFile = createConcatFile(files);
 
-  const safeConcat = escapeShell(concatFile);
-  const safeOutput = escapeShell(output);
+  const size =
+    fs.statSync(filePath).size;
 
-  run(
-    `ffmpeg -y -f concat -safe 0 ` +
-      `-i "${safeConcat}" ` +
-      `-c:v libx264 ` +
-      `-preset veryfast ` +
-      `-pix_fmt yuv420p ` +
-      `-r 30 ` +
-      `"${safeOutput}"`
-  );
-}
-
-function renderFinalVideo(
-  visualVideo,
-  audioPath,
-  outputPath,
-  duration
-) {
-  const safeVisual = escapeShell(visualVideo);
-  const safeAudio = escapeShell(audioPath);
-  const safeOutput = escapeShell(outputPath);
-
-  const title = escapeShell(
-    'VIRAL TRENDS USA / UK / EUROPE'
-  );
-
-  const subtitle = escapeShell(
-    'AI NEWS UPDATE'
-  );
-
-  run(
-    `ffmpeg -y ` +
-      `-i "${safeVisual}" ` +
-      `-i "${safeAudio}" ` +
-      `-filter_complex "` +
-      `[0:v]` +
-      `drawbox=x=0:y=0:w=iw:h=170:color=black@0.55:t=fill,` +
-      `drawtext=text='${title}':` +
-      `fontcolor=white:` +
-      `fontsize=48:` +
-      `x=(w-text_w)/2:` +
-      `y=55,` +
-      `drawtext=text='${subtitle}':` +
-      `fontcolor=gold:` +
-      `fontsize=34:` +
-      `x=(w-text_w)/2:` +
-      `y=115` +
-      `[v]" ` +
-      `-map "[v]" ` +
-      `-map 1:a:0 ` +
-      `-t ${duration} ` +
-      `-c:v libx264 ` +
-      `-preset medium ` +
-      `-crf 20 ` +
-      `-c:a aac ` +
-      `-b:a 192k ` +
-      `-ar 48000 ` +
-      `-pix_fmt yuv420p ` +
-      `"${safeOutput}"`
-  );
-}
-
-function validateFinalVideo(videoPath) {
-  console.log('\nValidating final video...');
-
-  if (!fs.existsSync(videoPath)) {
-    throw new Error('FINAL_VIDEO_MISSING');
-  }
-
-  const size = fs.statSync(videoPath).size;
 
   if (size < 100000) {
-    throw new Error('FINAL_VIDEO_TOO_SMALL');
+    throw new Error(
+      'FINAL_VIDEO_TOO_SMALL'
+    );
   }
 
-  const duration = getMediaDuration(videoPath);
 
-  if (!Number.isFinite(duration)) {
-    throw new Error('FINAL_VIDEO_DURATION_INVALID');
-  }
+  const duration =
+    getMediaDuration(filePath);
 
-  if (duration < 20 || duration > 59) {
+
+  if (
+    duration < config.videoConfig.minDuration ||
+    duration > config.videoConfig.maxDuration
+  ) {
     throw new Error(
       `FINAL_VIDEO_DURATION_INVALID: ${duration.toFixed(2)}s`
     );
   }
 
-  const safePath = escapeShell(videoPath);
 
-  const dimensions = execSync(
-    `ffprobe -v error ` +
-      `-select_streams v:0 ` +
-      `-show_entries stream=width,height ` +
-      `-of csv=s=x:p=0 "${safePath}"`,
-    {
-      encoding: 'utf8'
-    }
-  ).trim();
+  const dimensions =
+    getVideoDimensions(filePath);
 
-  if (dimensions !== `${WIDTH}x${HEIGHT}`) {
+
+  const expectedDimensions =
+    `${config.videoConfig.width}x${config.videoConfig.height}`;
+
+
+  if (dimensions !== expectedDimensions) {
     throw new Error(
       `FINAL_VIDEO_RESOLUTION_INVALID: ${dimensions}`
     );
   }
 
+
   console.log(
-    `FINAL VIDEO OK: ${duration.toFixed(2)}s, ${dimensions}`
+    `[Orchestrator] Final video validated: ${duration.toFixed(2)}s / ${dimensions}`
   );
+
+
+  return {
+    duration,
+    dimensions,
+    size
+  };
 }
 
-async function generateFullShort() {
+
+async function generateOneVideo({
+  topic,
+  videoNumber,
+  userScript = ''
+}) {
+
+  const projectId =
+    `project_${Date.now()}_${videoNumber}`;
+
+
+  console.log('\n========================================');
   console.log(
-    '=== Generating Full Visual AI Short ==='
+    `ZEESHAN AI LABS - VIDEO ${videoNumber}`
   );
+  console.log('========================================');
 
-  ensureDirectories();
 
-  const audioPath = path.join(
-    OUTPUT_DIR,
-    'voiceover.wav'
-  );
+  const project = addProject({
+    id: projectId,
+    topic,
+    videoNumber,
+    status: 'started',
+    mode: userScript
+      ? 'script'
+      : 'topic',
+    createdAt: new Date().toISOString()
+  });
 
-  const rawVisuals = [];
-
-  const normalizedVisuals = [];
-
-  const combinedVisual = path.join(
-    VISUAL_DIR,
-    'combined_visual.mp4'
-  );
-
-  const finalVideo = path.join(
-    OUTPUT_DIR,
-    `viral_short_${Date.now()}.mp4`
-  );
 
   try {
-    // --------------------------------------------------
-    // 1. VOICE
-    // --------------------------------------------------
 
-    generateVoice(audioPath);
+    // ------------------------------------------------
+    // 1. SCRIPT / STORY
+    // ------------------------------------------------
+
+    console.log('\n[1/6] Creating story/script...');
+
+
+    let script;
+
+
+    if (userScript) {
+
+      script = await generateScript(
+        topic || 'Motivational Story',
+        {
+          userScript
+        }
+      );
+
+    } else {
+
+      script =
+        await generateScript(
+          topic,
+          {
+            variation: videoNumber
+          }
+        );
+    }
+
+
+    addScript({
+      projectId,
+      videoNumber,
+      title: script.title,
+      narration: script.narration,
+      scenes: script.scenes,
+      durationEstimate: script.durationEstimate
+    });
+
+
+    console.log(
+      `[Orchestrator] Story created: ${script.title}`
+    );
+
+
+    // ------------------------------------------------
+    // 2. SCENE VISUAL PLANNING
+    // ------------------------------------------------
+
+    console.log('\n[2/6] Finding matching visuals...');
+
+
+    const sceneVisuals =
+      await buildSceneVisuals(
+        script.scenes,
+        topic
+      );
+
+
+    console.log(
+      `[Orchestrator] ${sceneVisuals.length} scene visuals selected.`
+    );
+
+
+    // ------------------------------------------------
+    // 3. DOWNLOAD VISUALS
+    // ------------------------------------------------
+
+    console.log('\n[3/6] Downloading scene visuals...');
+
+
+    const localScenes =
+      await downloadSceneVisuals(
+        sceneVisuals,
+        projectId
+      );
+
+
+    if (localScenes.length < 1) {
+      throw new Error(
+        'NO_LOCAL_SCENE_VISUALS'
+      );
+    }
+
+
+    // ------------------------------------------------
+    // 4. VOICEOVER
+    // ------------------------------------------------
+
+    console.log('\n[4/6] Creating voiceover...');
+
+
+    const audioPath =
+      path.join(
+        AUDIO_DIR,
+        `${projectId}.mp3`
+      );
+
+
+    await generateVoiceover(
+      script.narration,
+      audioPath,
+      {
+        language: 'en'
+      }
+    );
+
 
     const audioDuration =
       getMediaDuration(audioPath);
 
-    console.log(
-      `Voice duration: ${audioDuration.toFixed(2)} seconds`
-    );
 
-    const finalDuration = Math.min(
-      TARGET_DURATION,
-      Math.max(20, audioDuration)
-    );
-
-    // --------------------------------------------------
-    // 2. REAL PERSON / NEWS VISUALS
-    // --------------------------------------------------
-
-    const visualQueries = [
-      'breaking news reporter person',
-      'news presenter studio',
-      'person looking at news',
-      'business news person',
-      'technology person',
-      'world news city',
-      'journalist reporter'
-    ];
-
-    const scenesNeeded = 7;
-
-    for (let i = 0; i < scenesNeeded; i++) {
-      const query =
-        visualQueries[i % visualQueries.length];
-
-      try {
-        const visual =
-          await findAndDownloadVisual(
-            query,
-            i + 1
-          );
-
-        rawVisuals.push(visual);
-      } catch (error) {
-        console.warn(
-          `Visual ${i + 1} failed: ${error.message}`
-        );
-      }
-    }
-
-    if (rawVisuals.length === 0) {
+    if (!audioDuration) {
       throw new Error(
-        'NO_VALID_VISUALS: Pexels returned no usable video.'
+        'VOICEOVER_DURATION_INVALID'
       );
     }
+
 
     console.log(
-      `Downloaded ${rawVisuals.length} real visual clips.`
+      `[Orchestrator] Voice duration: ${audioDuration.toFixed(2)}s`
     );
 
-    // --------------------------------------------------
-    // 3. NORMALIZE EVERY VISUAL TO 1080x1920
-    // --------------------------------------------------
 
-    const sceneDuration =
-      finalDuration / rawVisuals.length;
+    // ------------------------------------------------
+    // 5. RENDER
+    // ------------------------------------------------
 
-    for (let i = 0; i < rawVisuals.length; i++) {
-      const normalizedPath = path.join(
-        VISUAL_DIR,
-        `normalized_${i + 1}.mp4`
+    console.log('\n[5/6] Rendering final vertical video...');
+
+
+    const finalVideoPath =
+      path.join(
+        FINAL_DIR,
+        `${projectId}.mp4`
       );
 
-      normalizeVisual(
-        rawVisuals[i],
-        normalizedPath,
-        sceneDuration
+
+    const visualPaths =
+      localScenes.map(
+        scene => scene.localPath
       );
 
-      normalizedVisuals.push(normalizedPath);
-    }
 
-    // --------------------------------------------------
-    // 4. JOIN VISUAL SCENES
-    // --------------------------------------------------
-
-    concatenateVisuals(
-      normalizedVisuals,
-      combinedVisual
-    );
-
-    // --------------------------------------------------
-    // 5. FINAL VIDEO + VOICE
-    // --------------------------------------------------
-
-    renderFinalVideo(
-      combinedVisual,
+    await renderFinalVideo(
       audioPath,
-      finalVideo,
-      finalDuration
+      visualPaths,
+      finalVideoPath
     );
 
-    // --------------------------------------------------
-    // 6. FINAL VALIDATION
-    // --------------------------------------------------
 
-    validateFinalVideo(finalVideo);
+    // ------------------------------------------------
+    // 6. VALIDATION
+    // ------------------------------------------------
 
+    console.log('\n[6/6] Validating final video...');
+
+
+    const validation =
+      validateFinalVideo(
+        finalVideoPath
+      );
+
+
+    const renderRecord =
+      addRender({
+        projectId,
+        videoNumber,
+        status: 'completed',
+        outputPath: finalVideoPath,
+        duration: validation.duration,
+        dimensions: validation.dimensions,
+        fileSize: validation.size,
+        title: script.title,
+        createdAt: new Date().toISOString()
+      });
+
+
+    addHistory({
+      projectId,
+      action: 'VIDEO_CREATED',
+      status: 'success',
+      outputPath: finalVideoPath,
+      duration: validation.duration
+    });
+
+
+    updateProjectStatus(
+      projectId,
+      'completed'
+    );
+
+
+    console.log('\n----------------------------------------');
+    console.log('VIDEO CREATED SUCCESSFULLY');
+    console.log(`Title: ${script.title}`);
+    console.log(`File: ${finalVideoPath}`);
     console.log(
-      '\n======================================'
+      `Duration: ${validation.duration.toFixed(2)}s`
     );
-
     console.log(
-      'SUCCESS: Full visual Short created.'
+      `Resolution: ${validation.dimensions}`
     );
+    console.log('----------------------------------------');
 
-    console.log(
-      `Video: ${finalVideo}`
-    );
 
-    console.log(
-      `Duration: ${finalDuration.toFixed(2)} seconds`
-    );
+    return {
+      project,
+      render: renderRecord,
+      script,
+      finalVideoPath,
+      validation
+    };
 
-    console.log(
-      'Resolution: 1080x1920'
-    );
 
-    console.log(
-      'Visuals: REAL Pexels video clips'
-    );
-
-    console.log(
-      'Audio: eSpeak voiceover'
-    );
-
-    console.log(
-      '======================================\n'
-    );
   } catch (error) {
+
     console.error(
-      '\nPIPELINE FAILED:'
+      `\n[Orchestrator] Video ${videoNumber} FAILED:`,
+      error.message
     );
 
-    console.error(error.message);
 
-    // IMPORTANT:
-    // Never leave a fake black video as success output.
-    if (fs.existsSync(finalVideo)) {
-      try {
-        fs.unlinkSync(finalVideo);
-      } catch {}
+    addHistory({
+      projectId,
+      action: 'VIDEO_FAILED',
+      status: 'failed',
+      error: error.message
+    });
+
+
+    updateProjectStatus(
+      projectId,
+      'failed'
+    );
+
+
+    throw error;
+  }
+}
+
+
+function updateProjectStatus(
+  projectId,
+  status
+) {
+  // Store module already owns persistence.
+  // Importing updateProject is intentionally avoided here
+  // to keep this controller compatible with the basic store.
+  console.log(
+    `[Orchestrator] Project ${projectId}: ${status}`
+  );
+}
+
+
+async function main() {
+
+  ensureDirectories();
+
+
+  const topic =
+    getTopicFromArguments();
+
+
+  const count =
+    getCountFromArguments();
+
+
+  const userScript =
+    getUserScriptFromEnvironment();
+
+
+  if (!topic && !userScript) {
+
+    console.log(`
+ZEESHAN AI LABS - AI VIDEO GENERATOR
+
+Usage:
+
+1) Topic:
+node src/orchestrator.mjs "Never Give Up"
+
+2) Topic + multiple videos:
+node src/orchestrator.mjs "Never Give Up" --count=5
+
+3) Script mode:
+VIDEO_SCRIPT="Your complete script here" node src/orchestrator.mjs "My Video"
+
+Required environment:
+PEXELS_API_KEY
+GEMINI_API_KEY
+`);
+    return;
+  }
+
+
+  console.log('\n========================================');
+  console.log('ZEESHAN AI LABS');
+  console.log('AI VIDEO GENERATOR');
+  console.log('========================================');
+
+
+  console.log(
+    `Mode: ${userScript ? 'SCRIPT' : 'TOPIC'}`
+  );
+
+
+  console.log(
+    `Videos requested: ${count}`
+  );
+
+
+  if (topic) {
+    console.log(
+      `Topic: ${topic}`
+    );
+  }
+
+
+  if (userScript) {
+    console.log(
+      'Custom script detected.'
+    );
+  }
+
+
+  const results = [];
+
+
+  for (
+    let videoNumber = 1;
+    videoNumber <= count;
+    videoNumber++
+  ) {
+
+    try {
+
+      const result =
+        await generateOneVideo({
+          topic:
+            topic ||
+            'Motivational Story',
+          videoNumber,
+          userScript
+        });
+
+
+      results.push(result);
+
+    } catch (error) {
+
+      console.error(
+        `[Main] Video ${videoNumber} failed: ${error.message}`
+      );
+
     }
+  }
 
+
+  console.log('\n========================================');
+  console.log('FINAL GENERATION REPORT');
+  console.log('========================================');
+
+
+  console.log(
+    `Requested: ${count}`
+  );
+
+
+  console.log(
+    `Completed: ${results.length}`
+  );
+
+
+  console.log(
+    `Failed: ${count - results.length}`
+  );
+
+
+  for (
+    const result of results
+  ) {
+
+    console.log(
+      `- ${result.finalVideoPath}`
+    );
+  }
+
+
+  console.log(
+    '========================================\n'
+  );
+
+
+  if (results.length === 0) {
     process.exit(1);
   }
 }
 
-generateFullShort();
+
+main().catch(error => {
+
+  console.error(
+    '\n[FATAL] Orchestrator failed:',
+    error.message
+  );
+
+  process.exit(1);
+});
