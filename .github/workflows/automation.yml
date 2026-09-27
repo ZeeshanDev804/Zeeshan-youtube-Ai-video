@@ -28,23 +28,17 @@ jobs:
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TREND_REGION: "US,GB,EU"
+          ENABLE_GOOGLE_TRENDS: "true"
+          ENABLE_YOUTUBE_TRENDS: "true"
         run: |
-          echo "Finding entry file..."
-          TARGET_FILE=$(find . -maxdepth 3 -not -path '*/node_modules/*' -name "automationOrchestrator.js" -o -name "index.js" -o -name "app.js" -o -name "main.js" | head -n 1)
-          
-          if [ -n "$TARGET_FILE" ]; then
-            echo "Running file: $TARGET_FILE"
-            node "$TARGET_FILE"
+          if [ -f "automationOrchestrator.js" ]; then
+            node automationOrchestrator.js
+          elif [ -f "src/automationOrchestrator.js" ]; then
+            node src/automationOrchestrator.js
           else
-            echo "Searching all js files..."
-            ANY_JS=$(find . -maxdepth 2 -not -path '*/node_modules/*' -name "*.js" | head -n 1)
-            if [ -n "$ANY_JS" ]; then
-              echo "Running alternative file: $ANY_JS"
-              node "$ANY_JS"
-            else
-              echo "No JavaScript file found!"
-              exit 1
-            fi
+            echo "automationOrchestrator.js not found!"
+            exit 1
           fi
 
       - name: Upload Generated Video Artifact
@@ -54,4 +48,6 @@ jobs:
           path: |
             *.mp4
             output/*.mp4
+            renders/*.mp4
+            public/*.mp4
           if-no-files-found: warn
