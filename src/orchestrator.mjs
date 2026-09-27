@@ -3,40 +3,35 @@ import path from 'path';
 import { execSync } from 'child_process';
 import config from './config/index.mjs';
 
-async function generateViralShort() {
-  console.log("=== Starting AI Video & Voice Pipeline ===");
+async function generateFullShort() {
+  console.log("=== Generating Full 30-Second AI Short ===");
 
   const outputFolder = path.resolve('output_artifacts');
   if (!fs.existsSync(outputFolder)) {
     fs.mkdirSync(outputFolder, { recursive: true });
   }
 
-  const audioPath = path.join(outputFolder, 'voiceover.mp3');
-  const finalVideoPath = path.join(outputFolder, `viral_short_${Date.now()}.mp4`);
+  const audioPath = path.join(outputFolder, 'voiceover.wav');
+  const videoPath = path.join(outputFolder, `viral_short_${Date.now()}.mp4`);
 
-  // Step 1: Generate Voiceover using eSpeak / TTS Engine
-  console.log("Generating Voiceover Audio...");
-  const scriptText = "Welcome to today's trending story. Top stories from US, UK and Europe making headlines right now.";
-  
-  try {
-    // Generate clear voice audio
-    execSync(`espeak-ng "${scriptText}" -w "${audioPath}"`, { stdio: 'inherit' });
-  } catch (err) {
-    console.log("eSpeak fallback to basic audio...");
-    execSync(`ffmpeg -f lavfi -i sine=frequency=1000:duration=30 -y "${audioPath}"`, { stdio: 'inherit' });
-  }
-
-  // Step 2: Render 30-Second HD Video with Audio Track
-  console.log("Rendering Final Video with Sound...");
-  const ffmpegCmd = `ffmpeg -f lavfi -i color=c=0x111827:s=1080x1920:d=30 -i "${audioPath}" -vf "drawtext=text='TRENDING SHORT':fontcolor=gold:fontsize=60:x=(w-text_w)/2:y=300,drawtext=text='USA • UK • EU':fontcolor=white:fontsize=40:x=(w-text_w)/2:y=400" -c:v libx264 -c:a aac -pix_fmt yuv420p -shortest -y "${finalVideoPath}"`;
+  const textScript = "Here is the top viral news from USA, UK and Europe today. Stay tuned for more trending updates!";
 
   try {
+    // 1. Generate Voice Audio (eSpeak NG Engine)
+    console.log("Creating TTS Audio...");
+    execSync(`espeak-ng "${textScript}" -w "${audioPath}" -s 140`, { stdio: 'inherit' });
+
+    // 2. Render Full 30 Second HD Video (1080x1920) with Audio Sync
+    console.log("Rendering 30s HD Video with Audio Track...");
+    const ffmpegCmd = `ffmpeg -f lavfi -i color=c=0x0f172a:s=1080x1920:d=30 -i "${audioPath}" -filter_complex "[0:v]drawtext=text='VIRAL TRENDS USA/UK/EU':fontcolor=gold:fontsize=50:x=(w-text_w)/2:y=200,drawtext=text='${textScript}':fontcolor=white:fontsize=36:x=(w-text_w)/2:y=800:line_spacing=15[v]" -map "[v]" -map 1:a -c:v libx264 -c:a aac -b:a 192k -pix_fmt yuv420p -t 30 -y "${videoPath}"`;
+
     execSync(ffmpegCmd, { stdio: 'inherit' });
-    console.log(`SUCCESS: Video & Audio Created at ${finalVideoPath}`);
-  } catch (error) {
-    console.error("Rendering Error:", error);
+    console.log(`SUCCESS: Full 30s Video Created at: ${videoPath}`);
+
+  } catch (err) {
+    console.error("Pipeline Error:", err);
     process.exit(1);
   }
 }
 
-generateViralShort();
+generateFullShort();
