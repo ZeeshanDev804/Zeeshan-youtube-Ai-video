@@ -32,24 +32,18 @@ jobs:
           ENABLE_GOOGLE_TRENDS: "true"
           ENABLE_YOUTUBE_TRENDS: "true"
         run: |
-          echo "=== Searching Repository Files ==="
-          ls -la
-          
-          echo "=== Searching for automation script ==="
-          # Search everywhere in repo excluding node_modules
-          SCRIPT_PATH=$(find . -not -path '*/node_modules/*' -name "*automationOrchestrator*.js" -o -name "*orchestrator*.js" -o -name "index.js" -o -name "app.js" | head -n 1)
-          
-          if [ -n "$SCRIPT_PATH" ]; then
-            echo "Executing target file: $SCRIPT_PATH"
-            node "$SCRIPT_PATH"
+          echo "=== Running Direct Target Script ==="
+          if [ -f "automationOrchestrator.js" ]; then
+            node automationOrchestrator.js
+          elif [ -f "src/automationOrchestrator.js" ]; then
+            node src/automationOrchestrator.js
           else
-            echo "Searching for any runnable JS file..."
-            ANY_JS=$(find . -maxdepth 2 -not -path '*/node_modules/*' -name "*.js" | head -n 1)
-            if [ -n "$ANY_JS" ]; then
-              echo "Executing alternative JS: $ANY_JS"
-              node "$ANY_JS"
+            echo "Direct search for automationOrchestrator.js..."
+            FILE_PATH=$(find . -not -path '*/node_modules/*' -name "automationOrchestrator.js" | head -n 1)
+            if [ -n "$FILE_PATH" ]; then
+              node "$FILE_PATH"
             else
-              echo "CRITICAL: No JavaScript file found!"
+              echo "CRITICAL: automationOrchestrator.js file not found!"
               exit 1
             fi
           fi
