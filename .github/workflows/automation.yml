@@ -24,7 +24,7 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Run Video Generator
+      - name: Run Video Generator with Trends
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -32,22 +32,38 @@ jobs:
           ENABLE_GOOGLE_TRENDS: "true"
           ENABLE_YOUTUBE_TRENDS: "true"
         run: |
-          if [ -f "automationOrchestrator.js" ]; then
-            node automationOrchestrator.js
-          elif [ -f "src/automationOrchestrator.js" ]; then
-            node src/automationOrchestrator.js
+          echo "=== Starting USA/UK/EU Automation Orchestrator ==="
+          
+          # Find exact path of automationOrchestrator.js
+          SCRIPT_PATH=$(find . -maxdepth 3 -not -path '*/node_modules/*' -name "automationOrchestrator.js" | head -n 1)
+          
+          if [ -n "$SCRIPT_PATH" ]; then
+            echo "Executing: $SCRIPT_PATH"
+            node "$SCRIPT_PATH"
           else
-            echo "automationOrchestrator.js not found!"
-            exit 1
+            echo "ERROR: automationOrchestrator.js missing! Searching secondary entry files..."
+            ALT_PATH=$(find . -maxdepth 2 -not -path '*/node_modules/*' \( -name "index.js" -o -name "app.js" \) | head -n 1)
+            if [ -n "$ALT_PATH" ]; then
+              echo "Executing Alternative: $ALT_PATH"
+              node "$ALT_PATH"
+            else
+              echo "CRITICAL: No executable JS file found in repository!"
+              exit 1
+            fi
           fi
+
+      - name: Locate and Collect All Generated Media
+        if: always()
+        run: |
+          echo "=== Scanning for generated MP4 files ==="
+          mkdir -p output_artifacts
+          find . -not -path '*/node_modules/*' -name "*.mp4" -exec cp {} output_artifacts/ \;
+          echo "Files copied to output_artifacts:"
+          ls -la output_artifacts/
 
       - name: Upload Generated Video Artifact
         uses: actions/upload-artifact@v4
         with:
           name: generated-short-video
-          path: |
-            *.mp4
-            output/*.mp4
-            renders/*.mp4
-            public/*.mp4
+          path: output_artifacts/
           if-no-files-found: warn
