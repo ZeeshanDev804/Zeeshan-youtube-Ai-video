@@ -28,7 +28,13 @@ jobs:
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: node index.js || node src/index.js || node automationOrchestrator.js
+        run: |
+          if [ -f "index.js" ]; then node index.js;
+          elif [ -f "src/index.js" ]; then node src/index.js;
+          elif [ -f "automationOrchestrator.js" ]; then node automationOrchestrator.js;
+          elif [ -f "src/automationOrchestrator.js" ]; then node src/automationOrchestrator.js;
+          else echo "Main JS file not found!"; exit 1;
+          fi
 
       - name: Upload Generated Video Artifact
         uses: actions/upload-artifact@v4
