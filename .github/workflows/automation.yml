@@ -2,8 +2,6 @@ name: Automated Shorts Generator Pipeline
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 12 * * *'
 
 jobs:
   build-and-render:
@@ -19,19 +17,24 @@ jobs:
           node-version: '20'
 
       - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run Video Generator
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: npm start
+        run: node index.js || node src/index.js || node automationOrchestrator.js
 
       - name: Upload Generated Video Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: generated-shorts-video
-          path: output/
+          name: generated-short-video
+          path: |
+            *.mp4
+            output/*.mp4
+          if-no-files-found: warn
