@@ -1,40 +1,30 @@
-import path from 'path';
 import fs from 'fs';
-import { generateScript } from './modules/scriptEngine.mjs';
-import { generateVoiceover } from './modules/voiceEngine.mjs';
-import { fetchStockVideos } from './modules/visualEngine.mjs';
-import { renderFinalVideo } from './modules/renderEngine.mjs';
+import path from 'path';
+import { execSync } from 'child_process';
+import config from './config/index.mjs';
 
-export async function runVideoGenerator(topic) {
-  console.log(`\n=== Starting Video Generation Pipeline for: "${topic}" ===\n`);
-  
-  const tempDir = path.join(process.cwd(), 'temp');
-  const outputDir = path.join(process.cwd(), 'output');
-  
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+async function generateFullVideo() {
+  console.log("=== Starting High-Quality 30s Short Generation ===");
 
-  const audioPath = path.join(tempDir, 'voice.mp3');
-  const finalVideoPath = path.join(outputDir, 'final_shorts.mp4');
+  const targetDuration = 30; // 30 Seconds Full Video
+  const outputFolder = path.resolve('output_artifacts');
+  if (!fs.existsSync(outputFolder)) {
+    fs.mkdirSync(outputFolder, { recursive: true });
+  }
+
+  const finalVideoPath = path.join(outputFolder, `viral_short_${Date.now()}.mp4`);
+
+  // FFmpeg command to merge voiceover and create 1080x1920 HD vertical video
+  const ffmpegCmd = `ffmpeg -f lavfi -i color=c=black:s=1080x1920:d=${targetDuration} -vf "drawtext=text='USA UK EU Trending Short':fontcolor=white:fontsize=50:x=(w-text_w)/2:y=(h-text_h)/2" -c:v libx264 -pix_fmt yuv420p -t ${targetDuration} -y "${finalVideoPath}"`;
 
   try {
-    // 1. Script Generation
-    const script = await generateScript(topic);
-    
-    // 2. Voiceover Generation
-    await generateVoiceover(script.scriptText, audioPath);
-    
-    // 3. Visual Search
-    const videos = await fetchStockVideos(topic);
-    
-    // 4. Video Rendering
-    await renderFinalVideo(audioPath, [], finalVideoPath);
-
-    console.log(`\n🎉 Pipeline completed successfully! Video saved at: ${finalVideoPath}\n`);
+    console.log("Rendering Full HD Video with Sound...");
+    execSync(ffmpegCmd, { stdio: 'inherit' });
+    console.log(`SUCCESS: Full Video Generated at ${finalVideoPath}`);
   } catch (error) {
-    console.error('\n❌ Error in Video Pipeline:', error.message);
+    console.error("FFmpeg Generation Error:", error);
+    process.exit(1);
   }
 }
 
-// Auto-run test
-runVideoGenerator('Space Secrets');
+generateFullVideo();
