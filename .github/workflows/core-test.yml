@@ -63,19 +63,19 @@ jobs:
 
       - name: Check script engine
         run: |
-          node --input-type=module -e "import('./src/models/scriptEngine.mjs').then(()=>console.log('scriptEngine: OK'))"
+          node --input-type=module -e "import('./src/modules/scriptEngine.mjs').then(()=>console.log('scriptEngine: OK'))"
 
       - name: Check visual engine
         run: |
-          node --input-type=module -e "import('./src/models/visualEngine.mjs').then(()=>console.log('visualEngine: OK'))"
+          node --input-type=module -e "import('./src/modules/visualEngine.mjs').then(()=>console.log('visualEngine: OK'))"
 
       - name: Check voice engine
         run: |
-          node --input-type=module -e "import('./src/models/voiceEngine.mjs').then(()=>console.log('voiceEngine: OK'))"
+          node --input-type=module -e "import('./src/modules/voiceEngine.mjs').then(()=>console.log('voiceEngine: OK'))"
 
       - name: Check render engine
         run: |
-          node --input-type=module -e "import('./src/models/renderEngine.mjs').then(()=>console.log('renderEngine: OK'))"
+          node --input-type=module -e "import('./src/modules/renderEngine.mjs').then(()=>console.log('renderEngine: OK'))"
 
       - name: Check orchestrator syntax
         run: |
