@@ -16,10 +16,10 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install System Dependencies (FFmpeg)
+      - name: Install System Dependencies (FFmpeg & eSpeak Engine)
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg espeak-ng
 
       - name: Install Node.js Dependencies
         run: npm install
