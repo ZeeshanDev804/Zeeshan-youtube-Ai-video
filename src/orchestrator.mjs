@@ -6,43 +6,92 @@ import { execFileSync } from 'child_process';
 import config from './config/index.mjs';
 
 import {
-  generateScript,
-  generateMultipleScripts
-} from './models/scriptEngine.mjs';
+  generateScript
+} from './modules/scriptEngine.mjs';
 
 import {
   buildSceneVisuals
-} from './models/visualEngine.mjs';
+} from './modules/visualEngine.mjs';
 
 import {
   generateVoiceover
-} from './models/voiceEngine.mjs';
+} from './modules/voiceEngine.mjs';
 
 import {
   renderFinalVideo
-} from './models/renderEngine.mjs';
+} from './modules/renderEngine.mjs';
 
 import {
   addProject,
   addScript,
   addRender,
-  addHistory
+  addHistory,
+  updateProject
 } from './store.mjs';
 
 
-const OUTPUT_DIR = path.resolve('output_artifacts');
-const VISUAL_DIR = path.join(OUTPUT_DIR, 'visuals');
-const AUDIO_DIR = path.join(OUTPUT_DIR, 'audio');
-const FINAL_DIR = path.join(OUTPUT_DIR, 'final');
+/* =========================================================
+   DIRECTORIES
+========================================================= */
 
+const OUTPUT_DIR = path.resolve(
+  config.outputDir || 'output_artifacts'
+);
+
+const VISUAL_DIR = path.join(
+  OUTPUT_DIR,
+  'visuals'
+);
+
+const AUDIO_DIR = path.join(
+  OUTPUT_DIR,
+  'audio'
+);
+
+const FINAL_DIR = path.join(
+  OUTPUT_DIR,
+  'final'
+);
+
+
+/* =========================================================
+   DIRECTORY SETUP
+========================================================= */
 
 function ensureDirectories() {
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-  fs.mkdirSync(VISUAL_DIR, { recursive: true });
-  fs.mkdirSync(AUDIO_DIR, { recursive: true });
-  fs.mkdirSync(FINAL_DIR, { recursive: true });
+  fs.mkdirSync(
+    OUTPUT_DIR,
+    {
+      recursive: true
+    }
+  );
+
+  fs.mkdirSync(
+    VISUAL_DIR,
+    {
+      recursive: true
+    }
+  );
+
+  fs.mkdirSync(
+    AUDIO_DIR,
+    {
+      recursive: true
+    }
+  );
+
+  fs.mkdirSync(
+    FINAL_DIR,
+    {
+      recursive: true
+    }
+  );
 }
 
+
+/* =========================================================
+   TEXT HELPERS
+========================================================= */
 
 function cleanText(value) {
   return String(value || '')
@@ -50,6 +99,10 @@ function cleanText(value) {
     .trim();
 }
 
+
+/* =========================================================
+   COMMAND LINE
+========================================================= */
 
 function getTopicFromArguments() {
   const args = process.argv.slice(2);
@@ -60,7 +113,9 @@ function getTopicFromArguments() {
 
   return cleanText(
     args
-      .filter(arg => !arg.startsWith('--'))
+      .filter(
+        arg => !arg.startsWith('--')
+      )
       .join(' ')
   );
 }
@@ -70,7 +125,8 @@ function getCountFromArguments() {
   const args = process.argv.slice(2);
 
   const countArgument = args.find(
-    arg => arg.startsWith('--count=')
+    arg =>
+      arg.startsWith('--count=')
   );
 
   if (!countArgument) {
@@ -86,11 +142,18 @@ function getCountFromArguments() {
   }
 
   return Math.min(
-    Math.max(Math.floor(count), 1),
+    Math.max(
+      Math.floor(count),
+      1
+    ),
     10
   );
 }
 
+
+/* =========================================================
+   CUSTOM SCRIPT
+========================================================= */
 
 function getUserScriptFromEnvironment() {
   return cleanText(
@@ -101,121 +164,213 @@ function getUserScriptFromEnvironment() {
 }
 
 
-function downloadFile(url, destination) {
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destination);
+/* =========================================================
+   DOWNLOAD FILE
+========================================================= */
 
-    const request = https.get(
-      url,
-      {
-        headers: {
-          'User-Agent': 'ZEESHAN-AI-LAB'
-        }
-      },
-      response => {
+function downloadFile(
+  url,
+  destination
+) {
+  return new Promise(
+    (resolve, reject) => {
 
-        // Handle redirects
-        if (
-          response.statusCode >= 300 &&
-          response.statusCode < 400 &&
-          response.headers.location
-        ) {
+      const file =
+        fs.createWriteStream(
+          destination
+        );
+
+      const request =
+        https.get(
+          url,
+          {
+            headers: {
+              'User-Agent':
+                'ZEESHAN-AI-LAB'
+            }
+          },
+          response => {
+
+            /*
+             * REDIRECT
+             */
+
+            if (
+              response.statusCode >= 300 &&
+              response.statusCode < 400 &&
+              response.headers.location
+            ) {
+
+              file.close();
+
+              if (
+                fs.existsSync(
+                  destination
+                )
+              ) {
+                fs.unlinkSync(
+                  destination
+                );
+              }
+
+              downloadFile(
+                response.headers.location,
+                destination
+              )
+                .then(resolve)
+                .catch(reject);
+
+              return;
+            }
+
+
+            /*
+             * HTTP ERROR
+             */
+
+            if (
+              response.statusCode !== 200
+            ) {
+
+              file.close();
+
+              if (
+                fs.existsSync(
+                  destination
+                )
+              ) {
+                fs.unlinkSync(
+                  destination
+                );
+              }
+
+              reject(
+                new Error(
+                  `Visual download failed: HTTP ${response.statusCode}`
+                )
+              );
+
+              return;
+            }
+
+
+            /*
+             * DOWNLOAD
+             */
+
+            response.pipe(file);
+
+
+            file.on(
+              'finish',
+              () => {
+
+                file.close(
+                  () => {
+
+                    if (
+                      !fs.existsSync(
+                        destination
+                      )
+                    ) {
+
+                      reject(
+                        new Error(
+                          'Downloaded visual file does not exist.'
+                        )
+                      );
+
+                      return;
+                    }
+
+
+                    const size =
+                      fs.statSync(
+                        destination
+                      ).size;
+
+
+                    if (
+                      size < 50000
+                    ) {
+
+                      fs.unlinkSync(
+                        destination
+                      );
+
+                      reject(
+                        new Error(
+                          'Downloaded visual file is too small.'
+                        )
+                      );
+
+                      return;
+                    }
+
+
+                    resolve(
+                      destination
+                    );
+                  }
+                );
+              }
+            );
+          }
+        );
+
+
+      request.on(
+        'error',
+        error => {
+
           file.close();
 
-          if (fs.existsSync(destination)) {
-            fs.unlinkSync(destination);
-          }
-
-          downloadFile(
-            response.headers.location,
-            destination
-          )
-            .then(resolve)
-            .catch(reject);
-
-          return;
-        }
-
-
-        if (response.statusCode !== 200) {
-          file.close();
-
-          if (fs.existsSync(destination)) {
-            fs.unlinkSync(destination);
-          }
-
-          reject(
-            new Error(
-              `Visual download failed: HTTP ${response.statusCode}`
+          if (
+            fs.existsSync(
+              destination
             )
-          );
+          ) {
+            fs.unlinkSync(
+              destination
+            );
+          }
 
-          return;
+          reject(error);
         }
-
-
-        response.pipe(file);
-
-
-        file.on('finish', () => {
-          file.close(() => {
-
-            if (!fs.existsSync(destination)) {
-              reject(
-                new Error(
-                  'Downloaded visual file does not exist.'
-                )
-              );
-
-              return;
-            }
-
-
-            const size =
-              fs.statSync(destination).size;
-
-
-            if (size < 50000) {
-              fs.unlinkSync(destination);
-
-              reject(
-                new Error(
-                  'Downloaded visual file is too small.'
-                )
-              );
-
-              return;
-            }
-
-
-            resolve(destination);
-          });
-        });
-      }
-    );
-
-
-    request.on('error', error => {
-      file.close();
-
-      if (fs.existsSync(destination)) {
-        fs.unlinkSync(destination);
-      }
-
-      reject(error);
-    });
-  });
+      );
+    }
+  );
 }
 
+
+/* =========================================================
+   DOWNLOAD ALL SCENE VISUALS
+========================================================= */
 
 async function downloadSceneVisuals(
   sceneVisuals,
   projectId
 ) {
-  const projectVisualDir = path.join(
-    VISUAL_DIR,
-    projectId
-  );
+
+  if (
+    !Array.isArray(
+      sceneVisuals
+    ) ||
+    sceneVisuals.length === 0
+  ) {
+
+    throw new Error(
+      'NO_SCENE_VISUALS'
+    );
+  }
+
+
+  const projectVisualDir =
+    path.join(
+      VISUAL_DIR,
+      projectId
+    );
+
 
   fs.mkdirSync(
     projectVisualDir,
@@ -233,13 +388,17 @@ async function downloadSceneVisuals(
     index < sceneVisuals.length;
     index++
   ) {
-    const scene = sceneVisuals[index];
+
+    const scene =
+      sceneVisuals[index];
+
 
     const url =
       scene?.visual?.url;
 
 
     if (!url) {
+
       console.warn(
         `[Orchestrator] Scene ${index + 1} has no visual URL.`
       );
@@ -248,10 +407,11 @@ async function downloadSceneVisuals(
     }
 
 
-    const destination = path.join(
-      projectVisualDir,
-      `scene_${index + 1}.mp4`
-    );
+    const destination =
+      path.join(
+        projectVisualDir,
+        `scene_${index + 1}.mp4`
+      );
 
 
     console.log(
@@ -260,23 +420,28 @@ async function downloadSceneVisuals(
 
 
     try {
+
       await downloadFile(
         url,
         destination
       );
 
 
-      downloaded.push({
-        ...scene,
-        localPath: destination
-      });
+      downloaded.push(
+        {
+          ...scene,
+          localPath:
+            destination
+        }
+      );
 
 
       console.log(
-        `[Orchestrator] Scene ${index + 1} downloaded.`
+        `[Orchestrator] Scene ${index + 1} downloaded successfully.`
       );
 
     } catch (error) {
+
       console.warn(
         `[Orchestrator] Scene ${index + 1} failed: ${error.message}`
       );
@@ -284,7 +449,10 @@ async function downloadSceneVisuals(
   }
 
 
-  if (downloaded.length === 0) {
+  if (
+    downloaded.length === 0
+  ) {
+
     throw new Error(
       'NO_SCENE_VISUALS_DOWNLOADED'
     );
@@ -295,23 +463,32 @@ async function downloadSceneVisuals(
 }
 
 
-function getMediaDuration(filePath) {
+/* =========================================================
+   MEDIA DURATION
+========================================================= */
+
+function getMediaDuration(
+  filePath
+) {
+
   try {
-    const output = execFileSync(
-      'ffprobe',
-      [
-        '-v',
-        'error',
-        '-show_entries',
-        'format=duration',
-        '-of',
-        'default=noprint_wrappers=1:nokey=1',
-        filePath
-      ],
-      {
-        encoding: 'utf8'
-      }
-    );
+
+    const output =
+      execFileSync(
+        'ffprobe',
+        [
+          '-v',
+          'error',
+          '-show_entries',
+          'format=duration',
+          '-of',
+          'default=noprint_wrappers=1:nokey=1',
+          filePath
+        ],
+        {
+          encoding: 'utf8'
+        }
+      );
 
 
     const duration =
@@ -320,11 +497,14 @@ function getMediaDuration(filePath) {
       );
 
 
-    return Number.isFinite(duration)
+    return Number.isFinite(
+      duration
+    )
       ? duration
       : 0;
 
   } catch (error) {
+
     console.warn(
       `[Orchestrator] Could not read media duration: ${error.message}`
     );
@@ -334,37 +514,59 @@ function getMediaDuration(filePath) {
 }
 
 
-function getVideoDimensions(filePath) {
+/* =========================================================
+   VIDEO DIMENSIONS
+========================================================= */
+
+function getVideoDimensions(
+  filePath
+) {
+
   try {
-    const output = execFileSync(
-      'ffprobe',
-      [
-        '-v',
-        'error',
-        '-select_streams',
-        'v:0',
-        '-show_entries',
-        'stream=width,height',
-        '-of',
-        'csv=s=x:p=0',
-        filePath
-      ],
-      {
-        encoding: 'utf8'
-      }
-    );
+
+    const output =
+      execFileSync(
+        'ffprobe',
+        [
+          '-v',
+          'error',
+          '-select_streams',
+          'v:0',
+          '-show_entries',
+          'stream=width,height',
+          '-of',
+          'csv=s=x:p=0',
+          filePath
+        ],
+        {
+          encoding: 'utf8'
+        }
+      );
 
 
     return output.trim();
 
   } catch {
+
     return '';
   }
 }
 
 
-function validateFinalVideo(filePath) {
-  if (!fs.existsSync(filePath)) {
+/* =========================================================
+   FINAL VIDEO VALIDATION
+========================================================= */
+
+function validateFinalVideo(
+  filePath
+) {
+
+  if (
+    !fs.existsSync(
+      filePath
+    )
+  ) {
+
     throw new Error(
       'FINAL_VIDEO_MISSING'
     );
@@ -372,10 +574,15 @@ function validateFinalVideo(filePath) {
 
 
   const size =
-    fs.statSync(filePath).size;
+    fs.statSync(
+      filePath
+    ).size;
 
 
-  if (size < 100000) {
+  if (
+    size < 100000
+  ) {
+
     throw new Error(
       'FINAL_VIDEO_TOO_SMALL'
     );
@@ -383,13 +590,26 @@ function validateFinalVideo(filePath) {
 
 
   const duration =
-    getMediaDuration(filePath);
+    getMediaDuration(
+      filePath
+    );
+
+
+  const videoConfig =
+    config.videoConfig || {
+      width: 1080,
+      height: 1920,
+      minDuration: 20,
+      maxDuration: 59,
+      fps: 30
+    };
 
 
   if (
-    duration < config.videoConfig.minDuration ||
-    duration > config.videoConfig.maxDuration
+    duration < videoConfig.minDuration ||
+    duration > videoConfig.maxDuration
   ) {
+
     throw new Error(
       `FINAL_VIDEO_DURATION_INVALID: ${duration.toFixed(2)}s`
     );
@@ -397,14 +617,20 @@ function validateFinalVideo(filePath) {
 
 
   const dimensions =
-    getVideoDimensions(filePath);
+    getVideoDimensions(
+      filePath
+    );
 
 
   const expectedDimensions =
-    `${config.videoConfig.width}x${config.videoConfig.height}`;
+    `${videoConfig.width}x${videoConfig.height}`;
 
 
-  if (dimensions !== expectedDimensions) {
+  if (
+    dimensions !==
+    expectedDimensions
+  ) {
+
     throw new Error(
       `FINAL_VIDEO_RESOLUTION_INVALID: ${dimensions}`
     );
@@ -424,6 +650,41 @@ function validateFinalVideo(filePath) {
 }
 
 
+/* =========================================================
+   PROJECT STATUS
+========================================================= */
+
+function updateProjectStatus(
+  projectId,
+  status
+) {
+
+  try {
+
+    updateProject(
+      projectId,
+      {
+        status
+      }
+    );
+
+  } catch (error) {
+
+    console.warn(
+      `[Orchestrator] Could not update project status: ${error.message}`
+    );
+  }
+
+  console.log(
+    `[Orchestrator] Project ${projectId}: ${status}`
+  );
+}
+
+
+/* =========================================================
+   GENERATE ONE VIDEO
+========================================================= */
+
 async function generateOneVideo({
   topic,
   videoNumber,
@@ -434,45 +695,78 @@ async function generateOneVideo({
     `project_${Date.now()}_${videoNumber}`;
 
 
-  console.log('\n========================================');
+  console.log(
+    '\n========================================'
+  );
+
   console.log(
     `ZEESHAN AI LABS - VIDEO ${videoNumber}`
   );
-  console.log('========================================');
+
+  console.log(
+    '========================================'
+  );
 
 
-  const project = addProject({
-    id: projectId,
-    topic,
-    videoNumber,
-    status: 'started',
-    mode: userScript
-      ? 'script'
-      : 'topic',
-    createdAt: new Date().toISOString()
-  });
+  const project =
+    addProject(
+      {
+        id:
+          projectId,
+
+        topic,
+
+        videoNumber,
+
+        status:
+          'started',
+
+        mode:
+          userScript
+            ? 'script'
+            : 'topic',
+
+        createdAt:
+          new Date().toISOString()
+      }
+    );
 
 
   try {
 
-    // ------------------------------------------------
-    // 1. SCRIPT / STORY
-    // ------------------------------------------------
+    /*
+     * STEP 1
+     * SCRIPT
+     */
 
-    console.log('\n[1/6] Creating story/script...');
+    console.log(
+      '\n[1/6] Creating story/script...'
+    );
 
 
     let script;
 
 
-    if (userScript) {
+    if (
+      userScript
+    ) {
 
-      script = await generateScript(
-        topic || 'Motivational Story',
-        {
-          userScript
-        }
-      );
+      /*
+       * Current script engine supports
+       * topic generation. The actual custom
+       * script support will be added inside
+       * scriptEngine without changing this
+       * controller.
+       */
+
+      script =
+        await generateScript(
+          topic ||
+            'Motivational Story',
+          {
+            userScript
+          }
+        );
 
     } else {
 
@@ -480,20 +774,43 @@ async function generateOneVideo({
         await generateScript(
           topic,
           {
-            variation: videoNumber
+            variation:
+              videoNumber
           }
         );
     }
 
 
-    addScript({
-      projectId,
-      videoNumber,
-      title: script.title,
-      narration: script.narration,
-      scenes: script.scenes,
-      durationEstimate: script.durationEstimate
-    });
+    if (
+      !script ||
+      !script.narration
+    ) {
+
+      throw new Error(
+        'SCRIPT_GENERATION_FAILED'
+      );
+    }
+
+
+    addScript(
+      {
+        projectId,
+
+        videoNumber,
+
+        title:
+          script.title,
+
+        narration:
+          script.narration,
+
+        scenes:
+          script.scenes,
+
+        durationEstimate:
+          script.durationEstimate
+      }
+    );
 
 
     console.log(
@@ -501,11 +818,14 @@ async function generateOneVideo({
     );
 
 
-    // ------------------------------------------------
-    // 2. SCENE VISUAL PLANNING
-    // ------------------------------------------------
+    /*
+     * STEP 2
+     * VISUAL PLANNING
+     */
 
-    console.log('\n[2/6] Finding matching visuals...');
+    console.log(
+      '\n[2/6] Finding matching visuals...'
+    );
 
 
     const sceneVisuals =
@@ -515,16 +835,30 @@ async function generateOneVideo({
       );
 
 
+    if (
+      !sceneVisuals ||
+      sceneVisuals.length === 0
+    ) {
+
+      throw new Error(
+        'VISUAL_PLANNING_FAILED'
+      );
+    }
+
+
     console.log(
       `[Orchestrator] ${sceneVisuals.length} scene visuals selected.`
     );
 
 
-    // ------------------------------------------------
-    // 3. DOWNLOAD VISUALS
-    // ------------------------------------------------
+    /*
+     * STEP 3
+     * DOWNLOAD VISUALS
+     */
 
-    console.log('\n[3/6] Downloading scene visuals...');
+    console.log(
+      '\n[3/6] Downloading scene visuals...'
+    );
 
 
     const localScenes =
@@ -534,18 +868,24 @@ async function generateOneVideo({
       );
 
 
-    if (localScenes.length < 1) {
+    if (
+      localScenes.length === 0
+    ) {
+
       throw new Error(
         'NO_LOCAL_SCENE_VISUALS'
       );
     }
 
 
-    // ------------------------------------------------
-    // 4. VOICEOVER
-    // ------------------------------------------------
+    /*
+     * STEP 4
+     * VOICEOVER
+     */
 
-    console.log('\n[4/6] Creating voiceover...');
+    console.log(
+      '\n[4/6] Creating voiceover...'
+    );
 
 
     const audioPath =
@@ -559,16 +899,22 @@ async function generateOneVideo({
       script.narration,
       audioPath,
       {
-        language: 'en'
+        language:
+          'en'
       }
     );
 
 
     const audioDuration =
-      getMediaDuration(audioPath);
+      getMediaDuration(
+        audioPath
+      );
 
 
-    if (!audioDuration) {
+    if (
+      audioDuration <= 0
+    ) {
+
       throw new Error(
         'VOICEOVER_DURATION_INVALID'
       );
@@ -580,11 +926,14 @@ async function generateOneVideo({
     );
 
 
-    // ------------------------------------------------
-    // 5. RENDER
-    // ------------------------------------------------
+    /*
+     * STEP 5
+     * FINAL RENDER
+     */
 
-    console.log('\n[5/6] Rendering final vertical video...');
+    console.log(
+      '\n[5/6] Rendering final vertical video...'
+    );
 
 
     const finalVideoPath =
@@ -596,7 +945,8 @@ async function generateOneVideo({
 
     const visualPaths =
       localScenes.map(
-        scene => scene.localPath
+        scene =>
+          scene.localPath
       );
 
 
@@ -607,11 +957,14 @@ async function generateOneVideo({
     );
 
 
-    // ------------------------------------------------
-    // 6. VALIDATION
-    // ------------------------------------------------
+    /*
+     * STEP 6
+     * VALIDATION
+     */
 
-    console.log('\n[6/6] Validating final video...');
+    console.log(
+      '\n[6/6] Validating final video...'
+    );
 
 
     const validation =
@@ -621,26 +974,53 @@ async function generateOneVideo({
 
 
     const renderRecord =
-      addRender({
+      addRender(
+        {
+          projectId,
+
+          videoNumber,
+
+          status:
+            'completed',
+
+          outputPath:
+            finalVideoPath,
+
+          duration:
+            validation.duration,
+
+          dimensions:
+            validation.dimensions,
+
+          fileSize:
+            validation.size,
+
+          title:
+            script.title,
+
+          createdAt:
+            new Date().toISOString()
+        }
+      );
+
+
+    addHistory(
+      {
         projectId,
-        videoNumber,
-        status: 'completed',
-        outputPath: finalVideoPath,
-        duration: validation.duration,
-        dimensions: validation.dimensions,
-        fileSize: validation.size,
-        title: script.title,
-        createdAt: new Date().toISOString()
-      });
 
+        action:
+          'VIDEO_CREATED',
 
-    addHistory({
-      projectId,
-      action: 'VIDEO_CREATED',
-      status: 'success',
-      outputPath: finalVideoPath,
-      duration: validation.duration
-    });
+        status:
+          'success',
+
+        outputPath:
+          finalVideoPath,
+
+        duration:
+          validation.duration
+      }
+    );
 
 
     updateProjectStatus(
@@ -649,27 +1029,47 @@ async function generateOneVideo({
     );
 
 
-    console.log('\n----------------------------------------');
-    console.log('VIDEO CREATED SUCCESSFULLY');
-    console.log(`Title: ${script.title}`);
-    console.log(`File: ${finalVideoPath}`);
+    console.log(
+      '\n----------------------------------------'
+    );
+
+    console.log(
+      'VIDEO CREATED SUCCESSFULLY'
+    );
+
+    console.log(
+      `Title: ${script.title}`
+    );
+
+    console.log(
+      `File: ${finalVideoPath}`
+    );
+
     console.log(
       `Duration: ${validation.duration.toFixed(2)}s`
     );
+
     console.log(
       `Resolution: ${validation.dimensions}`
     );
-    console.log('----------------------------------------');
+
+    console.log(
+      '----------------------------------------'
+    );
 
 
     return {
       project,
-      render: renderRecord,
+
+      render:
+        renderRecord,
+
       script,
+
       finalVideoPath,
+
       validation
     };
-
 
   } catch (error) {
 
@@ -679,12 +1079,20 @@ async function generateOneVideo({
     );
 
 
-    addHistory({
-      projectId,
-      action: 'VIDEO_FAILED',
-      status: 'failed',
-      error: error.message
-    });
+    addHistory(
+      {
+        projectId,
+
+        action:
+          'VIDEO_FAILED',
+
+        status:
+          'failed',
+
+        error:
+          error.message
+      }
+    );
 
 
     updateProjectStatus(
@@ -698,18 +1106,9 @@ async function generateOneVideo({
 }
 
 
-function updateProjectStatus(
-  projectId,
-  status
-) {
-  // Store module already owns persistence.
-  // Importing updateProject is intentionally avoided here
-  // to keep this controller compatible with the basic store.
-  console.log(
-    `[Orchestrator] Project ${projectId}: ${status}`
-  );
-}
-
+/* =========================================================
+   MAIN
+========================================================= */
 
 async function main() {
 
@@ -728,9 +1127,17 @@ async function main() {
     getUserScriptFromEnvironment();
 
 
-  if (!topic && !userScript) {
+  /*
+   * NO INPUT
+   */
 
-    console.log(`
+  if (
+    !topic &&
+    !userScript
+  ) {
+
+    console.log(
+      `
 ZEESHAN AI LABS - AI VIDEO GENERATOR
 
 Usage:
@@ -738,24 +1145,38 @@ Usage:
 1) Topic:
 node src/orchestrator.mjs "Never Give Up"
 
-2) Topic + multiple videos:
+2) Multiple videos:
 node src/orchestrator.mjs "Never Give Up" --count=5
 
-3) Script mode:
+3) Custom script:
 VIDEO_SCRIPT="Your complete script here" node src/orchestrator.mjs "My Video"
 
 Required environment:
+
 PEXELS_API_KEY
 GEMINI_API_KEY
-`);
+`
+    );
+
     return;
   }
 
 
-  console.log('\n========================================');
-  console.log('ZEESHAN AI LABS');
-  console.log('AI VIDEO GENERATOR');
-  console.log('========================================');
+  console.log(
+    '\n========================================'
+  );
+
+  console.log(
+    'ZEESHAN AI LABS'
+  );
+
+  console.log(
+    'AI VIDEO GENERATOR'
+  );
+
+  console.log(
+    '========================================'
+  );
 
 
   console.log(
@@ -768,14 +1189,20 @@ GEMINI_API_KEY
   );
 
 
-  if (topic) {
+  if (
+    topic
+  ) {
+
     console.log(
       `Topic: ${topic}`
     );
   }
 
 
-  if (userScript) {
+  if (
+    userScript
+  ) {
+
     console.log(
       'Custom script detected.'
     );
@@ -794,30 +1221,47 @@ GEMINI_API_KEY
     try {
 
       const result =
-        await generateOneVideo({
-          topic:
-            topic ||
-            'Motivational Story',
-          videoNumber,
-          userScript
-        });
+        await generateOneVideo(
+          {
+            topic:
+              topic ||
+              'Motivational Story',
+
+            videoNumber,
+
+            userScript
+          }
+        );
 
 
-      results.push(result);
+      results.push(
+        result
+      );
 
     } catch (error) {
 
       console.error(
         `[Main] Video ${videoNumber} failed: ${error.message}`
       );
-
     }
   }
 
 
-  console.log('\n========================================');
-  console.log('FINAL GENERATION REPORT');
-  console.log('========================================');
+  /*
+   * FINAL REPORT
+   */
+
+  console.log(
+    '\n========================================'
+  );
+
+  console.log(
+    'FINAL GENERATION REPORT'
+  );
+
+  console.log(
+    '========================================'
+  );
 
 
   console.log(
@@ -850,18 +1294,27 @@ GEMINI_API_KEY
   );
 
 
-  if (results.length === 0) {
+  if (
+    results.length === 0
+  ) {
+
     process.exit(1);
   }
 }
 
 
-main().catch(error => {
+/* =========================================================
+   START
+========================================================= */
 
-  console.error(
-    '\n[FATAL] Orchestrator failed:',
-    error.message
-  );
+main().catch(
+  error => {
 
-  process.exit(1);
-});
+    console.error(
+      '\n[FATAL] Orchestrator failed:',
+      error.message
+    );
+
+    process.exit(1);
+  }
+);
