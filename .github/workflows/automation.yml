@@ -1,65 +1,11 @@
-name: Automated Shorts Generator Pipeline
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build-and-render:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-
-      - name: Install Dependencies
-        run: npm install
-
-      - name: Run Orchestrator Script with Trends
-        env:
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          TREND_REGION: "US,GB,EU"
-          ENABLE_GOOGLE_TRENDS: "true"
-          ENABLE_YOUTUBE_TRENDS: "true"
-        run: |
-          echo "=== Executing src/orchestrator.mjs ==="
-          if [ -f "src/orchestrator.mjs" ]; then
-            node src/orchestrator.mjs
-          elif [ -f "orchestrator.mjs" ]; then
-            node orchestrator.mjs
-          else
-            echo "Direct searching for orchestrator file..."
-            TARGET=$(find . -not -path '*/node_modules/*' -name "*orchestrator*.mjs" -o -name "*orchestrator*.js" | head -n 1)
-            if [ -n "$TARGET" ]; then
-              node "$TARGET"
-            else
-              echo "CRITICAL: Script file not found!"
-              exit 1
-            fi
-          fi
-
       - name: Collect Generated Video Artifacts
         if: always()
         run: |
-          echo "=== Collecting generated MP4 files ==="
           mkdir -p output_artifacts
           find . -not -path '*/node_modules/*' -name "*.mp4" -exec cp {} output_artifacts/ \;
-          echo "Files inside output_artifacts:"
-          ls -la output_artifacts/
 
       - name: Upload Video Artifact
         uses: actions/upload-artifact@v4
         with:
           name: generated-youtube-short
           path: output_artifacts/
-          if-no-files-found: warn
