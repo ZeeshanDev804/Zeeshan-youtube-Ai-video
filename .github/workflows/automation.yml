@@ -14,15 +14,28 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
-      - name: Install System Dependencies (FFmpeg & eSpeak Engine)
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg espeak-ng
 
+      - name: Check System
+        run: |
+          node --version
+          npm --version
+          ffmpeg -version
+          ffprobe -version
+          espeak-ng --version
+
       - name: Install Node.js Dependencies
         run: npm install
+
+      - name: Prepare Output Directory
+        run: |
+          mkdir -p output_artifacts
+          mkdir -p data
 
       - name: Run Orchestrator Script
         env:
@@ -31,16 +44,100 @@ jobs:
           TREND_REGION: "US,GB,EU"
           ENABLE_GOOGLE_TRENDS: "true"
           ENABLE_YOUTUBE_TRENDS: "true"
-        run: node src/orchestrator.mjs
+          OUTPUT_DIR: "output_artifacts"
+        run: |
+          echo "======================================"
+          echo "STARTING VIDEO GENERATION"
+          echo "======================================"
+
+          node src/orchestrator.mjs
+
+          echo "======================================"
+          echo "ORCHESTRATOR FINISHED"
+          echo "======================================"
+
+      - name: Inspect Generated Files
+        if: always()
+        run: |
+          echo "======================================"
+          echo "PROJECT FILES"
+          echo "======================================"
+
+          echo "MP4 files:"
+          find . \
+            -not -path './node_modules/*' \
+            -not -path './.git/*' \
+            -type f \
+            -name "*.mp4" \
+            -print
+
+          echo ""
+          echo "Output directory:"
+          ls -lah output_artifacts || true
+
+          echo ""
+          echo "All output files:"
+          find output_artifacts -maxdepth 2 -type f -print 2>/dev/null || true
 
       - name: Collect Generated Video Artifacts
         if: always()
         run: |
           mkdir -p output_artifacts
-          find . -not -path '*/node_modules/*' -name "*.mp4" -exec cp {} output_artifacts/ \;
+
+          find . \
+            -not -path './node_modules/*' \
+            -not -path './.git/*' \
+            -not -path './output_artifacts/*' \
+            -type f \
+            -name "*.mp4" \
+            -exec cp -f {} output_artifacts/ \;
+
+          echo "======================================"
+          echo "COLLECTED VIDEOS"
+          echo "======================================"
+
+          ls -lah output_artifacts || true
+
+      - name: Verify Generated Video
+        run: |
+          echo "Checking for generated MP4..."
+
+          MP4_COUNT=$(find output_artifacts -maxdepth 1 -type f -name "*.mp4" | wc -l)
+
+          echo "MP4 count: $MP4_COUNT"
+
+          if [ "$MP4_COUNT" -eq 0 ]; then
+            echo "ERROR: No generated MP4 video was found."
+            echo "The orchestrator finished but did not produce a video file."
+            exit 1
+          fi
+
+          echo "Video file found."
+
+      - name: Validate Generated Videos
+        run: |
+          for video in output_artifacts/*.mp4
+          do
+            echo "======================================"
+            echo "Validating: $video"
+            echo "======================================"
+
+            test -f "$video"
+
+            ffprobe \
+              -v error \
+              -show_entries format=duration \
+              -show_entries stream=codec_name,width,height \
+              -of default=noprint_wrappers=1 \
+              "$video"
+
+            echo "Video validation completed."
+          done
 
       - name: Upload Video Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: generated-youtube-short
-          path: output_artifacts/
+          path: output_artifacts/*.mp4
+          if-no-files-found: error
