@@ -47,10 +47,10 @@ jobs:
           OUTPUT_DIR: "output_artifacts"
         run: |
           echo "======================================"
-          echo "STARTING VIDEO GENERATION"
+          echo "STARTING ZEESHAN AI VIDEO GENERATOR"
           echo "======================================"
 
-          node src/orchestrator.mjs
+          node src/orchestrator.mjs "Never Give Up" --count=1
 
           echo "======================================"
           echo "ORCHESTRATOR FINISHED"
@@ -60,10 +60,9 @@ jobs:
         if: always()
         run: |
           echo "======================================"
-          echo "PROJECT FILES"
+          echo "GENERATED MP4 FILES"
           echo "======================================"
 
-          echo "MP4 files:"
           find . \
             -not -path './node_modules/*' \
             -not -path './.git/*' \
@@ -73,46 +72,44 @@ jobs:
 
           echo ""
           echo "Output directory:"
-          ls -lah output_artifacts || true
-
-          echo ""
-          echo "All output files:"
-          find output_artifacts -maxdepth 2 -type f -print 2>/dev/null || true
+          find output_artifacts \
+            -type f \
+            -print 2>/dev/null || true
 
       - name: Collect Generated Video Artifacts
         if: always()
         run: |
           mkdir -p output_artifacts
 
-          find . \
-            -not -path './node_modules/*' \
-            -not -path './.git/*' \
-            -not -path './output_artifacts/*' \
+          find output_artifacts \
             -type f \
             -name "*.mp4" \
             -exec cp -f {} output_artifacts/ \;
 
           echo "======================================"
-          echo "COLLECTED VIDEOS"
+          echo "FINAL ARTIFACT DIRECTORY"
           echo "======================================"
 
-          ls -lah output_artifacts || true
+          ls -lah output_artifacts
 
       - name: Verify Generated Video
         run: |
           echo "Checking for generated MP4..."
 
-          MP4_COUNT=$(find output_artifacts -maxdepth 1 -type f -name "*.mp4" | wc -l)
+          MP4_COUNT=$(find output_artifacts \
+            -maxdepth 1 \
+            -type f \
+            -name "*.mp4" \
+            | wc -l)
 
           echo "MP4 count: $MP4_COUNT"
 
           if [ "$MP4_COUNT" -eq 0 ]; then
             echo "ERROR: No generated MP4 video was found."
-            echo "The orchestrator finished but did not produce a video file."
             exit 1
           fi
 
-          echo "Video file found."
+          echo "Generated video found successfully."
 
       - name: Validate Generated Videos
         run: |
