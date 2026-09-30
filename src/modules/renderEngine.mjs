@@ -89,6 +89,20 @@ async function runFFmpeg(
     `[RenderEngine] FFmpeg command: ffmpeg ${args.join(" ")}`
   );
 
+  // -------------------------------------------------------
+  // DIAGNOSTIC LOGGING
+  // -------------------------------------------------------
+
+  console.log(
+    `[RenderEngine] CWD: ${process.cwd()}`
+  );
+
+  console.log(
+    `[RenderEngine] FFmpeg args: ${JSON.stringify(args)}`
+  );
+
+  // -------------------------------------------------------
+
   try {
     const {
       stdout,
