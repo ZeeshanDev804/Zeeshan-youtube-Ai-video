@@ -1,2 +1,48 @@
-PEXELS_API_KEY=your_actual_pexels_key
-GEMINI_API_KEY=your_actual_gemini_key
+# ==============================
+# ZEESHAN AI LABS
+# YouTube AI Video Generator
+# ==============================
+
+# Gemini
+GEMINI_API_KEY=your_gemini_api_key
+
+# Pexels - current stock visual fallback
+PEXELS_API_KEY=your_pexels_api_key
+
+# ==============================
+# ELEVENLABS - PRIMARY TTS
+# ==============================
+
+ELEVENLABS_API_KEY=your_elevenlabs_api_key
+ELEVENLABS_VOICE_ID=your_elevenlabs_voice_id
+
+# ==============================
+# GOOGLE CLOUD TTS - BACKUP TTS
+# ==============================
+
+GOOGLE_CLOUD_TTS_API_KEY=your_google_cloud_tts_api_key
+GOOGLE_CLOUD_TTS_VOICE=en-US-Neural2-D
+
+# ==============================
+# AMAZON POLLY - BACKUP TTS
+# ==============================
+
+AWS_ACCESS_KEY_ID=your_aws_access_key
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key
+AWS_REGION=us-east-1
+AWS_POLLY_VOICE=Matthew
+
+# ==============================
+# TTS SETTINGS
+# ==============================
+
+TTS_PRIMARY_PROVIDER=elevenlabs
+TTS_ENABLE_GOOGLE_BACKUP=true
+TTS_ENABLE_AMAZON_BACKUP=true
+TTS_LANGUAGE=en-US
+
+# ==============================
+# OUTPUT
+# ==============================
+
+OUTPUT_DIR=output
