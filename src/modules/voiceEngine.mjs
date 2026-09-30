@@ -7,6 +7,9 @@ import gTTS from 'gtts';
 
 import { config } from '../config/index.mjs';
 
+const MIN_AUDIO_BYTES = 1024;
+const REQUEST_TIMEOUT_MS = 60000;
+
 function cleanText(text) {
   return String(text || '')
     .replace(/\s+/g, ' ')
@@ -18,10 +21,22 @@ function ensureOutputDirectory(outputPath) {
     path.resolve(outputPath)
   );
 
-  if (!fs.existsSync(directory)) {
-    fs.mkdirSync(directory, {
-      recursive: true
-    });
+  fs.mkdirSync(directory, {
+    recursive: true
+  });
+}
+
+function removeExistingFile(outputPath) {
+  try {
+    if (fs.existsSync(outputPath)) {
+      fs.unlinkSync(outputPath);
+    }
+  } catch (error) {
+    throw new Error(
+      `[VoiceEngine] Could not remove old audio file: ${
+        error?.message || String(error)
+      }`
+    );
   }
 }
 
@@ -34,13 +49,59 @@ function validateAudioFile(outputPath) {
 
   const stats = fs.statSync(outputPath);
 
-  if (!stats.isFile() || stats.size === 0) {
+  if (!stats.isFile()) {
     throw new Error(
-      `[VoiceEngine] Generated audio file is empty or invalid: ${outputPath}`
+      `[VoiceEngine] Audio path is not a regular file: ${outputPath}`
+    );
+  }
+
+  if (stats.size < MIN_AUDIO_BYTES) {
+    throw new Error(
+      `[VoiceEngine] Generated audio is too small or invalid: ${outputPath} (${stats.size} bytes)`
     );
   }
 
   return outputPath;
+}
+
+function getElevenLabsApiKey() {
+  return (
+    config.elevenLabsApiKey ||
+    process.env.ELEVENLABS_API_KEY ||
+    ''
+  );
+}
+
+function getElevenLabsVoiceId() {
+  return (
+    config.elevenLabsVoiceId ||
+    process.env.ELEVENLABS_VOICE_ID ||
+    ''
+  );
+}
+
+function getGoogleApiKey() {
+  return (
+    config.googleCloudTtsApiKey ||
+    process.env.GOOGLE_CLOUD_TTS_API_KEY ||
+    ''
+  );
+}
+
+function getGoogleVoice() {
+  return (
+    config.googleCloudTtsVoice ||
+    process.env.GOOGLE_CLOUD_TTS_VOICE ||
+    'en-US-Neural2-D'
+  );
+}
+
+function getLanguageCode() {
+  return (
+    config.ttsConfig?.language ||
+    process.env.TTS_LANGUAGE ||
+    'en-US'
+  );
 }
 
 function requestJson({
@@ -57,7 +118,7 @@ function requestJson({
         path: requestPath,
         method,
         headers,
-        timeout: 60000
+        timeout: REQUEST_TIMEOUT_MS
       },
       response => {
         let data = '';
@@ -76,7 +137,7 @@ function requestJson({
             statusCode < 200 ||
             statusCode >= 300
           ) {
-            return reject(
+            reject(
               new Error(
                 `HTTP ${statusCode}: ${data.slice(
                   0,
@@ -84,14 +145,16 @@ function requestJson({
                 )}`
               )
             );
+            return;
+          }
+
+          if (!data) {
+            resolve({});
+            return;
           }
 
           try {
-            resolve(
-              data
-                ? JSON.parse(data)
-                : {}
-            );
+            resolve(JSON.parse(data));
           } catch {
             resolve(data);
           }
@@ -102,7 +165,9 @@ function requestJson({
     request.on('timeout', () => {
       request.destroy(
         new Error(
-          'HTTPS request timed out after 60 seconds.'
+          `HTTPS request timed out after ${
+            REQUEST_TIMEOUT_MS / 1000
+          } seconds.`
         )
       );
     });
@@ -131,7 +196,7 @@ function requestBinary({
         path: requestPath,
         method,
         headers,
-        timeout: 60000
+        timeout: REQUEST_TIMEOUT_MS
       },
       response => {
         const chunks = [];
@@ -151,13 +216,14 @@ function requestBinary({
             statusCode < 200 ||
             statusCode >= 300
           ) {
-            return reject(
+            reject(
               new Error(
                 `HTTP ${statusCode}: ${buffer
                   .toString('utf8')
                   .slice(0, 1000)}`
               )
             );
+            return;
           }
 
           resolve(buffer);
@@ -168,7 +234,9 @@ function requestBinary({
     request.on('timeout', () => {
       request.destroy(
         new Error(
-          'HTTPS request timed out after 60 seconds.'
+          `HTTPS request timed out after ${
+            REQUEST_TIMEOUT_MS / 1000
+          } seconds.`
         )
       );
     });
@@ -192,10 +260,10 @@ async function generateWithElevenLabs(
   outputPath
 ) {
   const apiKey =
-    config.elevenLabsApiKey;
+    getElevenLabsApiKey();
 
   const voiceId =
-    config.elevenLabsVoiceId;
+    getElevenLabsVoiceId();
 
   if (!apiKey) {
     throw new Error(
@@ -209,7 +277,7 @@ async function generateWithElevenLabs(
     );
   }
 
-  const urlPath =
+  const requestPath =
     `/v1/text-to-speech/${encodeURIComponent(
       voiceId
     )}`;
@@ -246,9 +314,11 @@ async function generateWithElevenLabs(
       hostname:
         'api.elevenlabs.io',
 
-      path: urlPath,
+      path:
+        requestPath,
 
-      method: 'POST',
+      method:
+        'POST',
 
       headers: {
         Accept:
@@ -269,10 +339,11 @@ async function generateWithElevenLabs(
 
   if (
     !audioBuffer ||
-    audioBuffer.length === 0
+    audioBuffer.length <
+      MIN_AUDIO_BYTES
   ) {
     throw new Error(
-      'ElevenLabs returned empty audio.'
+      'ElevenLabs returned invalid or empty audio.'
     );
   }
 
@@ -295,7 +366,7 @@ async function generateWithGoogleCloud(
   outputPath
 ) {
   const apiKey =
-    config.googleCloudTtsApiKey;
+    getGoogleApiKey();
 
   if (!apiKey) {
     throw new Error(
@@ -304,12 +375,10 @@ async function generateWithGoogleCloud(
   }
 
   const languageCode =
-    config.ttsConfig?.language ||
-    'en-US';
+    getLanguageCode();
 
   const voiceName =
-    config.googleCloudTtsVoice ||
-    'en-US-Neural2-D';
+    getGoogleVoice();
 
   const body = JSON.stringify({
     input: {
@@ -325,9 +394,11 @@ async function generateWithGoogleCloud(
       audioEncoding:
         'MP3',
 
-      speakingRate: 1.0,
+      speakingRate:
+        1.0,
 
-      pitch: 0
+      pitch:
+        0
     }
   });
 
@@ -341,7 +412,8 @@ async function generateWithGoogleCloud(
           apiKey
         )}`,
 
-      method: 'POST',
+      method:
+        'POST',
 
       headers: {
         'Content-Type':
@@ -368,10 +440,11 @@ async function generateWithGoogleCloud(
 
   if (
     !audioBuffer ||
-    audioBuffer.length === 0
+    audioBuffer.length <
+      MIN_AUDIO_BYTES
   ) {
     throw new Error(
-      'Google Cloud TTS returned empty decoded audio.'
+      'Google Cloud TTS returned invalid or empty audio.'
     );
   }
 
@@ -386,13 +459,13 @@ async function generateWithGoogleCloud(
 }
 
 /* =========================================================
-   AWS Signature V4 helpers
+   AWS Signature V4
    ========================================================= */
 
 function hmacSha256(
   key,
   data,
-  encoding = undefined
+  encoding
 ) {
   return crypto
     .createHmac(
@@ -410,55 +483,27 @@ function sha256Hex(data) {
     .digest('hex');
 }
 
-function awsEncode(value) {
-  return encodeURIComponent(
-    String(value)
-  )
-    .replace(
-      /!/g,
-      '%21'
-    )
-    .replace(
-      /'/g,
-      '%27'
-    )
-    .replace(
-      /\(/g,
-      '%28'
-    )
-    .replace(
-      /\)/g,
-      '%29'
-    )
-    .replace(
-      /\*/g,
-      '%2A'
-    );
-}
-
-function buildAmzDate(date = new Date()) {
-  const iso =
-    date.toISOString();
-
-  return iso
+function buildAmzDate(
+  date = new Date()
+) {
+  return date
+    .toISOString()
     .replace(
       /[:-]|\.\d{3}/g,
       ''
-    )
-    .replace(
-      'Z',
-      'Z'
     );
 }
 
-function getDateStamp(amzDate) {
+function getDateStamp(
+  amzDate
+) {
   return amzDate.slice(
     0,
     8
   );
 }
 
-function getAwsPollyCredentials() {
+function getAwsCredentials() {
   const accessKey =
     process.env.AWS_ACCESS_KEY_ID ||
     config.awsAccessKeyId ||
@@ -517,7 +562,7 @@ function getAwsPollyEngine() {
   );
 }
 
-function createAwsPollyAuthorization({
+function createAwsAuthorization({
   accessKey,
   secretKey,
   sessionToken,
@@ -541,7 +586,7 @@ function createAwsPollyAuthorization({
   const payloadHash =
     sha256Hex(body);
 
-  const headers = {
+  const canonicalHeaderValues = {
     host,
     'content-type':
       'application/json',
@@ -552,23 +597,27 @@ function createAwsPollyAuthorization({
   };
 
   if (sessionToken) {
-    headers[
+    canonicalHeaderValues[
       'x-amz-security-token'
     ] = sessionToken;
   }
 
-  const sortedHeaderNames =
-    Object.keys(headers)
+  const signedHeaderNames =
+    Object.keys(
+      canonicalHeaderValues
+    )
       .map(name =>
         name.toLowerCase()
       )
       .sort();
 
   const canonicalHeaders =
-    sortedHeaderNames
+    signedHeaderNames
       .map(name => {
         const value =
-          headers[name];
+          canonicalHeaderValues[
+            name
+          ];
 
         return `${name}:${String(
           value
@@ -577,7 +626,7 @@ function createAwsPollyAuthorization({
       .join('');
 
   const signedHeaders =
-    sortedHeaderNames.join(
+    signedHeaderNames.join(
       ';'
     );
 
@@ -594,7 +643,9 @@ function createAwsPollyAuthorization({
     'AWS4-HMAC-SHA256';
 
   const dateStamp =
-    getDateStamp(amzDate);
+    getDateStamp(
+      amzDate
+    );
 
   const credentialScope =
     `${dateStamp}/${region}/${service}/aws4_request`;
@@ -644,9 +695,7 @@ function createAwsPollyAuthorization({
 
   return {
     payloadHash,
-    signedHeaders,
-    authorization,
-    headers
+    authorization
   };
 }
 
@@ -659,7 +708,7 @@ async function generateWithAmazonPolly(
   outputPath
 ) {
   const credentials =
-    getAwsPollyCredentials();
+    getAwsCredentials();
 
   const region =
     getAwsRegion();
@@ -673,181 +722,103 @@ async function generateWithAmazonPolly(
   const host =
     `polly.${region}.amazonaws.com`;
 
-  const bodyObject = {
-    OutputFormat:
-      'mp3',
+  const createRequest = async (
+    selectedEngine
+  ) => {
+    const body =
+      JSON.stringify({
+        OutputFormat:
+          'mp3',
 
-    Text: text,
+        Text:
+          text,
 
-    TextType:
-      'text',
+        TextType:
+          'text',
 
-    VoiceId:
-      voiceId,
+        VoiceId:
+          voiceId,
 
-    Engine:
-      engine
-  };
+        Engine:
+          selectedEngine
+      });
 
-  const body =
-    JSON.stringify(
-      bodyObject
-    );
+    const amzDate =
+      buildAmzDate();
 
-  const amzDate =
-    buildAmzDate();
+    const signing =
+      createAwsAuthorization({
+        ...credentials,
+        region,
+        host,
+        body,
+        amzDate
+      });
 
-  const signing =
-    createAwsPollyAuthorization({
-      ...credentials,
-      region,
-      host,
-      body,
-      amzDate
+    const headers = {
+      'Content-Type':
+        'application/json',
+
+      'Content-Length':
+        Buffer.byteLength(body),
+
+      Host:
+        host,
+
+      'X-Amz-Date':
+        amzDate,
+
+      'X-Amz-Content-Sha256':
+        signing.payloadHash,
+
+      Authorization:
+        signing.authorization
+    };
+
+    if (
+      credentials.sessionToken
+    ) {
+      headers[
+        'X-Amz-Security-Token'
+      ] =
+        credentials.sessionToken;
+    }
+
+    return requestBinary({
+      hostname:
+        host,
+
+      path:
+        '/v1/speech',
+
+      method:
+        'POST',
+
+      headers,
+
+      body
     });
-
-  const headers = {
-    'Content-Type':
-      'application/json',
-
-    'Content-Length':
-      Buffer.byteLength(body),
-
-    Host:
-      host,
-
-    'X-Amz-Date':
-      amzDate,
-
-    'X-Amz-Content-Sha256':
-      signing.payloadHash,
-
-    Authorization:
-      signing.authorization
   };
-
-  if (
-    credentials.sessionToken
-  ) {
-    headers[
-      'X-Amz-Security-Token'
-    ] =
-      credentials.sessionToken;
-  }
 
   let audioBuffer;
 
   try {
     audioBuffer =
-      await requestBinary({
-        hostname: host,
-
-        path:
-          '/v1/speech',
-
-        method:
-          'POST',
-
-        headers,
-
-        body
-      });
+      await createRequest(
+        engine
+      );
   } catch (error) {
-    const message =
-      error?.message ||
-      String(error);
-
-    /*
-     * Some AWS regions/accounts may not
-     * support the selected neural voice.
-     * Retry with standard engine before
-     * giving the provider up.
-     */
     if (
       engine === 'neural'
     ) {
       console.warn(
-        `[VoiceEngine] Amazon Polly neural request failed. Retrying with standard engine: ${message}`
+        `[VoiceEngine] Polly neural failed. Trying standard engine.`
       );
 
-      const fallbackBody =
-        JSON.stringify({
-          OutputFormat:
-            'mp3',
-
-          Text: text,
-
-          TextType:
-            'text',
-
-          VoiceId:
-            voiceId,
-
-          Engine:
-            'standard'
-        });
-
-      const fallbackAmzDate =
-        buildAmzDate();
-
-      const fallbackSigning =
-        createAwsPollyAuthorization({
-          ...credentials,
-          region,
-          host,
-          body:
-            fallbackBody,
-          amzDate:
-            fallbackAmzDate
-        });
-
-      const fallbackHeaders = {
-        'Content-Type':
-          'application/json',
-
-        'Content-Length':
-          Buffer.byteLength(
-            fallbackBody
-          ),
-
-        Host:
-          host,
-
-        'X-Amz-Date':
-          fallbackAmzDate,
-
-        'X-Amz-Content-Sha256':
-          fallbackSigning.payloadHash,
-
-        Authorization:
-          fallbackSigning.authorization
-      };
-
-      if (
-        credentials.sessionToken
-      ) {
-        fallbackHeaders[
-          'X-Amz-Security-Token'
-        ] =
-          credentials.sessionToken;
-      }
-
       audioBuffer =
-        await requestBinary({
-          hostname: host,
-
-          path:
-            '/v1/speech',
-
-          method:
-            'POST',
-
-          headers:
-            fallbackHeaders,
-
-          body:
-            fallbackBody
-        });
+        await createRequest(
+          'standard'
+        );
     } else {
       throw error;
     }
@@ -855,10 +826,11 @@ async function generateWithAmazonPolly(
 
   if (
     !audioBuffer ||
-    audioBuffer.length === 0
+    audioBuffer.length <
+      MIN_AUDIO_BYTES
   ) {
     throw new Error(
-      'Amazon Polly returned empty audio.'
+      'Amazon Polly returned invalid or empty audio.'
     );
   }
 
@@ -902,9 +874,8 @@ async function generateWithGTTS(
           outputPath,
           error => {
             if (error) {
-              return reject(
-                error
-              );
+              reject(error);
+              return;
             }
 
             try {
@@ -949,10 +920,6 @@ function buildProviderOrder(
       .trim()
       .toLowerCase();
 
-  order.push(
-    primary
-  );
-
   const addProvider =
     provider => {
       if (
@@ -967,6 +934,10 @@ function buildProviderOrder(
     };
 
   addProvider(
+    primary
+  );
+
+  addProvider(
     'elevenlabs'
   );
 
@@ -974,7 +945,8 @@ function buildProviderOrder(
     config.ttsConfig
       ?.enableGoogleBackup ??
     String(
-      process.env.TTS_ENABLE_GOOGLE_BACKUP ||
+      process.env
+        .TTS_ENABLE_GOOGLE_BACKUP ||
         'true'
     ).toLowerCase() ===
       'true';
@@ -991,7 +963,8 @@ function buildProviderOrder(
     config.ttsConfig
       ?.enableAmazonBackup ??
     String(
-      process.env.TTS_ENABLE_AMAZON_BACKUP ||
+      process.env
+        .TTS_ENABLE_AMAZON_BACKUP ||
         'true'
     ).toLowerCase() ===
       'true';
@@ -1076,10 +1049,10 @@ export async function generateVoiceover(
     '[VoiceEngine] generateVoiceover() started.'
   );
 
-  const cleanTextValue =
+  const narration =
     cleanText(text);
 
-  if (!cleanTextValue) {
+  if (!narration) {
     throw new Error(
       '[VoiceEngine] Voiceover text is empty.'
     );
@@ -1100,31 +1073,21 @@ export async function generateVoiceover(
       options.provider
     );
 
-  const errors = [];
-
   console.log(
     `[VoiceEngine] Provider order: ${providers.join(
       ' -> '
     )}`
   );
 
+  const errors = [];
+
   for (
     const provider of providers
   ) {
     try {
-      /*
-       * Remove an old failed output before
-       * attempting the next provider.
-       */
-      if (
-        fs.existsSync(
-          outputPath
-        )
-      ) {
-        fs.unlinkSync(
-          outputPath
-        );
-      }
+      removeExistingFile(
+        outputPath
+      );
 
       console.log(
         `[VoiceEngine] Trying provider: ${provider}`
@@ -1133,7 +1096,7 @@ export async function generateVoiceover(
       const result =
         await generateByProvider(
           provider,
-          cleanTextValue,
+          narration,
           outputPath,
           options
         );
@@ -1220,24 +1183,24 @@ export async function generateSceneVoiceovers(
     const scene =
       scenes[index];
 
+    const sceneNumber =
+      index + 1;
+
     console.log(
-      `[VoiceEngine] Preparing scene ${
-        index + 1
-      }/${scenes.length} narration...`
+      `[VoiceEngine] Preparing scene ${sceneNumber}/${scenes.length} narration...`
     );
 
     const narration =
       cleanText(
         scene?.narration ||
           scene?.voiceover ||
+          scene?.text ||
           ''
       );
 
     if (!narration) {
       throw new Error(
-        `[VoiceEngine] Scene ${
-          index + 1
-        } has no narration.`
+        `[VoiceEngine] Scene ${sceneNumber} has no narration.`
       );
     }
 
@@ -1245,7 +1208,7 @@ export async function generateSceneVoiceovers(
       path.join(
         outputDirectory,
         `scene-${String(
-          index + 1
+          sceneNumber
         ).padStart(
           2,
           '0'
@@ -1253,34 +1216,49 @@ export async function generateSceneVoiceovers(
       );
 
     console.log(
-      `[VoiceEngine] Scene ${
-        index + 1
-      } text length: ${narration.length} characters`
+      `[VoiceEngine] Scene ${sceneNumber} text length: ${narration.length} characters`
     );
 
-    const audioPath =
+    const generatedAudioPath =
       await generateVoiceover(
         narration,
         outputPath,
         options
       );
 
+    const validatedPath =
+      validateAudioFile(
+        generatedAudioPath ||
+          outputPath
+      );
+
+    /*
+     * IMPORTANT:
+     * Return ALL three common property names.
+     * The orchestrator currently accepts:
+     * path OR outputPath.
+     * We also keep audioPath for compatibility.
+     */
     results.push({
       sceneIndex:
         index,
 
-      sceneNumber:
-        index + 1,
+      sceneNumber,
 
       narration,
 
-      audioPath
+      path:
+        validatedPath,
+
+      outputPath:
+        validatedPath,
+
+      audioPath:
+        validatedPath
     });
 
     console.log(
-      `[VoiceEngine] Scene ${
-        index + 1
-      } narration complete.`
+      `[VoiceEngine] Scene ${sceneNumber} narration complete.`
     );
   }
 
