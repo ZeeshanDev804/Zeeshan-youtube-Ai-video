@@ -7,8 +7,8 @@
   "scripts": {
     "start": "node src/orchestrator.mjs",
     "generate": "node src/orchestrator.mjs",
-    "check": "node --check src/orchestrator.mjs && node --check src/config/index.mjs && node --check src/modules/scriptEngine.mjs && node --check src/modules/visualEngine.mjs && node --check src/modules/voiceEngine.mjs && node --check src/modules/renderEngine.mjs",
-    "test:imports": "node -e \"import('./src/config/index.mjs').then(()=>import('./src/store.mjs')).then(()=>import('./src/modules/scriptEngine.mjs')).then(()=>import('./src/modules/visualEngine.mjs')).then(()=>import('./src/modules/voiceEngine.mjs')).then(()=>import('./src/modules/renderEngine.mjs')).then(()=>console.log('All core modules imported successfully.')).catch(error=>{console.error(error);process.exit(1)})\""
+    "check": "node --check src/orchestrator.mjs && node --check src/config/index.mjs && node --check src/modules/scriptEngine.mjs && node --check src/modules/visualEngine.mjs && node --check src/modules/voiceEngine.mjs && node --check src/modules/renderEngine.mjs && node --check src/modules/musicEngine.mjs && node --check src/modules/qualityEngine.mjs",
+    "test:imports": "node -e \"import('./src/config/index.mjs').then(()=>import('./src/store.mjs')).then(()=>import('./src/modules/scriptEngine.mjs')).then(()=>import('./src/modules/visualEngine.mjs')).then(()=>import('./src/modules/voiceEngine.mjs')).then(()=>import('./src/modules/renderEngine.mjs')).then(()=>import('./src/modules/musicEngine.mjs')).then(()=>import('./src/modules/qualityEngine.mjs')).then(()=>console.log('All core modules imported successfully.')).catch(error=>{console.error(error);process.exit(1)})\""
   },
   "engines": {
     "node": ">=22"
