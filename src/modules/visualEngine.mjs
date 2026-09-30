@@ -23,8 +23,8 @@ function ensureDirectory(directory) {
 
 function buildContinuityPrompt(
   scene,
-  story,
-  index
+  story = {},
+  index = 0
 ) {
   const character =
     cleanText(
@@ -139,8 +139,9 @@ function scoreVideoFile(
   }
 
   if (
-    String(file?.file_type)
-      .toLowerCase() === 'video/mp4'
+    String(file?.file_type || '')
+      .toLowerCase()
+      .includes('mp4')
   ) {
     score += 25;
   }
@@ -162,29 +163,53 @@ async function searchPexelsVideos(
     );
   }
 
-  const response =
-    await axios.get(
-      PEXELS_API_URL,
-      {
-        headers: {
-          Authorization:
-            config.pexelsApiKey
-        },
-
-        params: {
-          query,
-          orientation:
-            'portrait',
-          size:
-            'large',
-          per_page:
-            10
-        },
-
-        timeout:
-          30000
-      }
+  if (!cleanText(query)) {
+    throw new Error(
+      '[VisualEngine] Pexels search query is empty.'
     );
+  }
+
+  let response;
+
+  try {
+    response =
+      await axios.get(
+        PEXELS_API_URL,
+        {
+          headers: {
+            Authorization:
+              config.pexelsApiKey
+          },
+
+          params: {
+            query,
+            orientation:
+              'portrait',
+            size:
+              'large',
+            per_page:
+              15
+          },
+
+          timeout:
+            30000
+        }
+      );
+  } catch (error) {
+    const status =
+      error?.response?.status;
+
+    const message =
+      error?.response?.data?.error ||
+      error?.message ||
+      'Unknown Pexels error';
+
+    throw new Error(
+      `[VisualEngine] Pexels API request failed${
+        status ? ` (${status})` : ''
+      }: ${message}`
+    );
+  }
 
   const videos =
     Array.isArray(
@@ -217,6 +242,9 @@ async function searchPexelsVideos(
               .toLowerCase()
               .includes('mp4')
           )
+          .filter(file =>
+            file?.link
+          )
           .sort(
             (a, b) =>
               scoreVideoFile(b) -
@@ -232,26 +260,36 @@ async function searchPexelsVideos(
 
       return {
         id:
-          video.id,
+          video?.id || null,
 
         url:
           bestFile.link,
 
         width:
-          bestFile.width,
+          Number(
+            bestFile.width || 0
+          ),
 
         height:
-          bestFile.height,
+          Number(
+            bestFile.height || 0
+          ),
 
         duration:
-          video.duration,
+          Number(
+            video?.duration || 0
+          ),
+
+        provider:
+          'pexels',
 
         source:
           'pexels',
 
         photographer:
-          video.user?.name ||
-          '',
+          cleanText(
+            video?.user?.name || ''
+          ),
 
         searchQuery:
           query
@@ -354,9 +392,9 @@ export async function findVisualForScene(
     results.length === 0
   ) {
     throw new Error(
-      `[VisualEngine] No visual found for scene ${
+      `[VisualEngine] No suitable Pexels visual found for scene ${
         index + 1
-      }.`
+      }. Query: ${searchQuery}`
     );
   }
 
@@ -384,10 +422,10 @@ export async function findVisualForScene(
       scene.action,
 
     emotion:
-      scene.emotion,
+      scene.emotion || '',
 
     narration:
-      scene.narration,
+      scene.narration || '',
 
     plannedDuration:
       Number(
@@ -457,10 +495,15 @@ export async function buildSceneVisuals(
 }
 
 export async function downloadVisual(
-  visual,
+  visualOrUrl,
   outputPath
 ) {
-  if (!visual?.url) {
+  const visualUrl =
+    typeof visualOrUrl === 'string'
+      ? visualOrUrl
+      : visualOrUrl?.url;
+
+  if (!cleanText(visualUrl)) {
     throw new Error(
       '[VisualEngine] Visual URL is missing.'
     );
@@ -472,66 +515,148 @@ export async function downloadVisual(
     );
   }
 
+  const absoluteOutputPath =
+    path.resolve(
+      outputPath
+    );
+
   const directory =
     path.dirname(
-      path.resolve(
-        outputPath
-      )
+      absoluteOutputPath
     );
 
   ensureDirectory(
     directory
   );
 
-  const response =
-    await axios.get(
-      visual.url,
-      {
-        responseType:
-          'stream',
+  console.log(
+    `[VisualEngine] Downloading visual: ${absoluteOutputPath}`
+  );
 
-        timeout:
-          60000
-      }
+  let response;
+
+  try {
+    response =
+      await axios.get(
+        visualUrl,
+        {
+          responseType:
+            'stream',
+
+          timeout:
+            60000,
+
+          maxRedirects:
+            5,
+
+          validateStatus:
+            status =>
+              status >= 200 &&
+              status < 300
+        }
+      );
+  } catch (error) {
+    const status =
+      error?.response?.status;
+
+    const message =
+      error?.message ||
+      'Unknown download error';
+
+    throw new Error(
+      `[VisualEngine] Visual download failed${
+        status ? ` (${status})` : ''
+      }: ${message}`
     );
+  }
 
   await new Promise(
     (resolve, reject) => {
       const writer =
         fs.createWriteStream(
-          outputPath
+          absoluteOutputPath
         );
 
-      response.data.pipe(
-        writer
-      );
+      let settled =
+        false;
 
-      writer.on(
-        'finish',
-        resolve
+      const fail =
+        error => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+
+          writer.destroy();
+
+          reject(error);
+        };
+
+      response.data.on(
+        'error',
+        fail
       );
 
       writer.on(
         'error',
-        reject
+        fail
+      );
+
+      writer.on(
+        'finish',
+        () => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
+          resolve();
+        }
+      );
+
+      response.data.pipe(
+        writer
       );
     }
   );
 
+  if (
+    !fs.existsSync(
+      absoluteOutputPath
+    )
+  ) {
+    throw new Error(
+      `[VisualEngine] Visual file was not created: ${absoluteOutputPath}`
+    );
+  }
+
   const stats =
     fs.statSync(
-      outputPath
+      absoluteOutputPath
     );
+
+  if (
+    !stats.isFile()
+  ) {
+    throw new Error(
+      `[VisualEngine] Downloaded visual is not a file: ${absoluteOutputPath}`
+    );
+  }
 
   if (
     stats.size < 50 * 1024
   ) {
     throw new Error(
-      `[VisualEngine] Downloaded visual is too small: ${outputPath}`
+      `[VisualEngine] Downloaded visual is too small: ${absoluteOutputPath} (${stats.size} bytes)`
     );
   }
 
-  return outputPath;
+  console.log(
+    `[VisualEngine] Visual downloaded successfully: ${stats.size} bytes`
+  );
+
+  return absoluteOutputPath;
 }
 
 export default {
