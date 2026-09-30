@@ -53,19 +53,19 @@ function getTargetWordsPerMinute() {
     : 150;
 }
 
-function estimateDuration(
-  narration
-) {
-  const words = cleanText(
-    narration
-  )
-    .split(/\s+/)
-    .filter(Boolean)
-    .length;
+function estimateDuration(narration) {
+  const words =
+    cleanText(narration)
+      .split(/\s+/)
+      .filter(Boolean)
+      .length;
 
   if (words === 0) {
-    return getVideoConfig()
-      .minDuration || 20;
+    return (
+      Number(
+        getVideoConfig().minDuration
+      ) || 20
+    );
   }
 
   const minutes =
@@ -91,13 +91,9 @@ function estimateDuration(
   );
 }
 
-function estimateSceneDuration(
-  narration
-) {
+function estimateSceneDuration(narration) {
   const text =
-    cleanText(
-      narration
-    );
+    cleanText(narration);
 
   if (!text) {
     return 5;
@@ -202,13 +198,62 @@ function normalizeScene(
       scene?.duration
     );
 
+  const rawCharacter =
+    scene?.character;
+
+  const character =
+    typeof rawCharacter === 'string'
+      ? cleanText(
+          rawCharacter
+        )
+      : cleanText(
+          rawCharacter?.description ||
+          rawCharacter?.name ||
+          scene?.characterDescription ||
+          ''
+        );
+
+  const environment =
+    cleanText(
+      scene?.environment ||
+      scene?.location ||
+      scene?.setting ||
+      ''
+    ) ||
+    'realistic modern environment with natural cinematic lighting';
+
+  const action =
+    cleanText(
+      scene?.action ||
+      scene?.movement ||
+      ''
+    ) ||
+    'Alex continues the story action shown in the narration';
+
+  const emotion =
+    cleanText(
+      scene?.emotion ||
+      scene?.mood ||
+      ''
+    ) ||
+    'focused and determined';
+
+  const finalCharacter =
+    character ||
+    'Alex, a young adult with short dark hair, dark blue jacket and backpack';
+
+  const finalVisualPrompt =
+    visualPrompt ||
+    `Cinematic vertical 9:16 realistic shot of ${finalCharacter}, ${action}, ${environment}, ${emotion}, consistent character appearance, natural cinematic lighting, realistic photography`;
+
   return {
     sceneNumber:
       index + 1,
 
     narration,
 
-    visualPrompt,
+    visualPrompt:
+      finalVisualPrompt,
 
     duration:
       Number.isFinite(
@@ -225,30 +270,17 @@ function normalizeScene(
           ),
 
     character:
-      cleanText(
-        scene?.character
-      ),
+      finalCharacter,
 
-    environment:
-      cleanText(
-        scene?.environment
-      ),
+    environment,
 
-    action:
-      cleanText(
-        scene?.action
-      ),
+    action,
 
-    emotion:
-      cleanText(
-        scene?.emotion
-      )
+    emotion
   };
 }
 
-function normalizeStory(
-  raw
-) {
+function normalizeStory(raw) {
   const story =
     raw || {};
 
@@ -302,7 +334,11 @@ function normalizeStory(
 
     character:
       cleanText(
-        story.character
+        typeof story.character === 'string'
+          ? story.character
+          : story.character?.description ||
+            story.character?.name ||
+            ''
       ),
 
     goal:
@@ -351,9 +387,7 @@ function normalizeStory(
   };
 }
 
-function validateStory(
-  story
-) {
+function validateStory(story) {
   const storyConfig =
     getStoryConfig();
 
@@ -498,9 +532,13 @@ function validateStory(
 
     if (
       !Number.isFinite(
-        Number(scene.duration)
+        Number(
+          scene.duration
+        )
       ) ||
-      Number(scene.duration) <= 0
+      Number(
+        scene.duration
+      ) <= 0
     ) {
       throw new Error(
         `[ScriptEngine] Scene ${sceneNumber} has invalid duration.`
@@ -518,109 +556,168 @@ function createFallbackStory(
     cleanText(topic) ||
     'Never Give Up';
 
+  const hero =
+    'Alex, a young adult with short dark hair, dark blue jacket and backpack';
+
   const baseScenes = [
     {
       narration:
         'Everyone thought the story was already over.',
+
+      character:
+        hero,
+
       action:
         'Alex stands alone and looks at the difficult challenge ahead.',
+
       emotion:
         'uncertain but determined',
+
       environment:
         'realistic modern city street at early morning',
+
       visualPrompt:
-        'Cinematic vertical realistic shot of Alex, a young adult with short dark hair, dark blue jacket and backpack, standing alone on a modern city street at early morning, looking toward a difficult challenge, natural lighting, consistent character appearance, realistic photography'
+        `Cinematic vertical realistic shot of ${hero}, standing alone on a modern city street at early morning, looking toward a difficult challenge, natural lighting, consistent character appearance, realistic photography`
     },
 
     {
       narration:
         'Alex had one simple goal: to finish the challenge before the day ended.',
+
+      character:
+        hero,
+
       action:
         'Alex checks the plan and starts moving toward the goal.',
+
       emotion:
         'focused',
+
       environment:
         'same modern city street, early morning',
+
       visualPrompt:
-        'Cinematic vertical realistic shot of the same Alex with short dark hair, dark blue jacket and backpack, checking a simple plan and walking toward the challenge, same city environment and morning lighting, consistent face and clothing, realistic photography'
+        `Cinematic vertical realistic shot of the same ${hero}, checking a simple plan and walking toward the challenge, same city environment and morning lighting, consistent face and clothing, realistic photography`
     },
 
     {
       narration:
         'At first, everything seemed to go wrong.',
+
+      character:
+        hero,
+
       action:
         'Alex discovers that the original plan has failed.',
+
       emotion:
         'frustrated',
+
       environment:
         'same city area near the challenge',
+
       visualPrompt:
-        'Cinematic vertical realistic shot of the same Alex, same face, dark blue jacket and backpack, discovering that the plan has failed, frustrated expression, same city environment, realistic natural lighting, consistent character'
+        `Cinematic vertical realistic shot of the same ${hero}, discovering that the plan has failed, frustrated expression, same city environment, realistic natural lighting, consistent character`
     },
 
     {
       narration:
         'Then a serious setback made giving up feel easier than continuing.',
+
+      character:
+        hero,
+
       action:
         'Alex sits briefly, thinking about giving up.',
+
       emotion:
         'discouraged',
+
       environment:
         'same city area, quiet afternoon transition',
+
       visualPrompt:
-        'Cinematic vertical realistic shot of the same Alex, same face and clothing, sitting alone near the challenge and thinking about giving up, discouraged expression, consistent environment, realistic cinematic photography'
+        `Cinematic vertical realistic shot of the same ${hero}, sitting alone near the challenge and thinking about giving up, discouraged expression, consistent environment, realistic cinematic photography`
     },
 
     {
       narration:
         'Alex stopped, looked at the problem again, and noticed one small detail everyone had missed.',
+
+      character:
+        hero,
+
       action:
         'Alex notices a small but important detail and changes the plan.',
+
       emotion:
         'surprised and hopeful',
+
       environment:
         'same location near the challenge',
+
       visualPrompt:
-        'Cinematic vertical realistic close shot of the same Alex, same face and dark blue jacket, suddenly noticing a small important detail, surprised hopeful expression, studying the problem carefully, same environment, realistic cinematic photography'
+        `Cinematic vertical realistic close shot of the same ${hero}, suddenly noticing a small important detail, surprised hopeful expression, studying the problem carefully, same environment, realistic cinematic photography`
     },
 
     {
       narration:
         'That changed the entire plan.',
+
+      character:
+        hero,
+
       action:
         'Alex confidently follows the new plan.',
+
       emotion:
         'determined',
+
       environment:
         'same challenge location',
+
       visualPrompt:
-        'Cinematic vertical realistic shot of the same Alex, same face and clothing, confidently following a new plan at the challenge location, determined expression, consistent environment and lighting, realistic cinematic photography'
+        `Cinematic vertical realistic shot of the same ${hero}, confidently following a new plan at the challenge location, determined expression, consistent environment and lighting, realistic cinematic photography`
     },
 
     {
       narration:
         'Alex tried one more time, solved the problem step by step, and finally reached the goal.',
+
+      character:
+        hero,
+
       action:
         'Alex completes the challenge and reaches the goal.',
+
       emotion:
         'relieved and proud',
+
       environment:
         'same location at golden hour',
+
       visualPrompt:
-        'Cinematic vertical realistic shot of the same Alex, same face and dark blue jacket, successfully completing the challenge and reaching the goal, relieved proud expression, warm natural golden-hour lighting, same environment, realistic cinematic photography'
+        `Cinematic vertical realistic shot of the same ${hero}, successfully completing the challenge and reaching the goal, relieved proud expression, warm natural golden-hour lighting, same environment, realistic cinematic photography`
     },
 
     {
       narration:
         'The lesson was simple: a setback can change your plan without deciding your ending.',
+
+      character:
+        hero,
+
       action:
         'Alex walks away calmly after completing the goal.',
+
       emotion:
         'peaceful and confident',
+
       environment:
         'same city street at sunset',
+
       visualPrompt:
-        'Cinematic vertical realistic final shot of the same Alex, same face and clothing, calmly walking away after completing the goal, peaceful confident expression, same city street at sunset, natural cinematic lighting, realistic photography'
+        `Cinematic vertical realistic final shot of the same ${hero}, calmly walking away after completing the goal, peaceful confident expression, same city street at sunset, natural cinematic lighting, realistic photography`
     }
   ];
 
@@ -646,7 +743,7 @@ function createFallbackStory(
       'Everyone thought the story was already over.',
 
     character:
-      'Alex, a young adult with short dark hair, dark blue jacket and backpack.',
+      hero,
 
     goal:
       'Finish a difficult challenge before the day ends.',
@@ -682,13 +779,13 @@ function buildPrompt(
 ) {
   const requestedCategory =
     cleanText(
-      options.category
+      options?.category
     ) ||
     'Life Lesson';
 
   const region =
     cleanText(
-      options.region
+      options?.region
     ) ||
     'US, UK and Europe';
 
@@ -767,7 +864,6 @@ OUTPUT:
 Return ONLY valid JSON.
 
 Required JSON structure:
-
 {
   "title": "",
   "category": "",
@@ -865,6 +961,7 @@ export async function generateScript(
   );
 
   let story;
+
   let generatedBy =
     'gemini';
 
