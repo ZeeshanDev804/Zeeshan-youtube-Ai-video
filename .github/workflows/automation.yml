@@ -14,7 +14,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
 
       - name: Install System Dependencies
         run: |
@@ -34,17 +34,24 @@ jobs:
 
       - name: Prepare Output Directory
         run: |
-          mkdir -p output_artifacts
+          mkdir -p output
+          mkdir -p output/final
+          mkdir -p output/audio
+          mkdir -p output/music
           mkdir -p data
+          mkdir -p output_artifacts
 
       - name: Run Orchestrator Script
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
           TREND_REGION: "US,GB,EU"
           ENABLE_GOOGLE_TRENDS: "true"
           ENABLE_YOUTUBE_TRENDS: "true"
-          OUTPUT_DIR: "output_artifacts"
+
+          OUTPUT_DIR: "output"
+
         run: |
           echo "======================================"
           echo "STARTING ZEESHAN AI VIDEO GENERATOR"
@@ -63,9 +70,7 @@ jobs:
           echo "ALL GENERATED MP4 FILES"
           echo "======================================"
 
-          find . \
-            -not -path './node_modules/*' \
-            -not -path './.git/*' \
+          find output \
             -type f \
             -name "*.mp4" \
             -print \
@@ -73,25 +78,30 @@ jobs:
 
           echo ""
           echo "======================================"
-          echo "OUTPUT DIRECTORIES"
+          echo "FINAL DIRECTORY"
           echo "======================================"
 
-          echo "--- output_artifacts ---"
-          find output_artifacts \
+          find output/final \
             -type f \
             -print \
             2>/dev/null || true
 
           echo ""
-          echo "--- output ---"
-          find output \
+          echo "======================================"
+          echo "AUDIO FILES"
+          echo "======================================"
+
+          find output/audio \
             -type f \
             -print \
             2>/dev/null || true
 
           echo ""
-          echo "--- final ---"
-          find final \
+          echo "======================================"
+          echo "MUSIC FILES"
+          echo "======================================"
+
+          find output/music \
             -type f \
             -print \
             2>/dev/null || true
@@ -102,32 +112,27 @@ jobs:
           set -e
 
           echo "======================================"
-          echo "SEARCHING FOR FINAL GENERATED VIDEO"
+          echo "COLLECTING FINAL GENERATED VIDEO"
           echo "======================================"
 
           mkdir -p output_artifacts
 
+          rm -f output_artifacts/*.mp4
+
           FINAL_VIDEO=""
 
           echo ""
-          echo "--- Checking output_artifacts ---"
+          echo "Searching ONLY in output/final..."
 
           while IFS= read -r file; do
             if [ -n "$file" ]; then
-              filename=$(basename "$file")
-
-              case "$filename" in
-                scene-*.mp4|scene_*.mp4|normalized-*.mp4|normalized_*.mp4|combined-video.mp4|video_only_temp.mp4)
-                  echo "Skipping intermediate: $file"
-                  ;;
-                *)
-                  FINAL_VIDEO="$file"
-                  echo "Candidate final video: $file"
-                  ;;
-              esac
+              FINAL_VIDEO="$file"
+              echo "Final video candidate: $file"
+              break
             fi
           done < <(
-            find output_artifacts \
+            find output/final \
+              -maxdepth 1 \
               -type f \
               -name "*.mp4" \
               -print \
@@ -136,116 +141,38 @@ jobs:
 
           if [ -z "$FINAL_VIDEO" ]; then
             echo ""
-            echo "--- Checking output ---"
-
-            while IFS= read -r file; do
-              if [ -n "$file" ]; then
-                filename=$(basename "$file")
-
-                case "$filename" in
-                  scene-*.mp4|scene_*.mp4|normalized-*.mp4|normalized_*.mp4|combined-video.mp4|video_only_temp.mp4)
-                    echo "Skipping intermediate: $file"
-                    ;;
-                  *)
-                    FINAL_VIDEO="$file"
-                    echo "Candidate final video: $file"
-                    ;;
-                esac
-              fi
-            done < <(
-              find output \
-                -type f \
-                -name "*.mp4" \
-                -print \
-                2>/dev/null
-            )
-          fi
-
-          if [ -z "$FINAL_VIDEO" ]; then
-            echo ""
-            echo "--- Checking final ---"
-
-            while IFS= read -r file; do
-              if [ -n "$file" ]; then
-                filename=$(basename "$file")
-
-                case "$filename" in
-                  scene-*.mp4|scene_*.mp4|normalized-*.mp4|normalized_*.mp4|combined-video.mp4|video_only_temp.mp4)
-                    echo "Skipping intermediate: $file"
-                    ;;
-                  *)
-                    FINAL_VIDEO="$file"
-                    echo "Candidate final video: $file"
-                    ;;
-                esac
-              fi
-            done < <(
-              find final \
-                -type f \
-                -name "*.mp4" \
-                -print \
-                2>/dev/null
-            )
-          fi
-
-          if [ -z "$FINAL_VIDEO" ]; then
-            echo ""
-            echo "--- Global final-video search ---"
-
-            while IFS= read -r file; do
-              if [ -n "$file" ]; then
-                filename=$(basename "$file")
-
-                case "$filename" in
-                  scene-*.mp4|scene_*.mp4|normalized-*.mp4|normalized_*.mp4|combined-video.mp4|video_only_temp.mp4)
-                    echo "Skipping intermediate: $file"
-                    ;;
-                  *)
-                    FINAL_VIDEO="$file"
-                    echo "Candidate final video: $file"
-                    ;;
-                esac
-              fi
-            done < <(
-              find . \
-                -not -path './node_modules/*' \
-                -not -path './.git/*' \
-                -type f \
-                -name "*.mp4" \
-                -print \
-                2>/dev/null
-            )
-          fi
-
-          if [ -n "$FINAL_VIDEO" ]; then
-            echo ""
             echo "======================================"
-            echo "FINAL VIDEO FOUND"
-            echo "======================================"
-            echo "Source: $FINAL_VIDEO"
-
-            cp -f "$FINAL_VIDEO" output_artifacts/final_video.mp4
-
-            echo ""
-            echo "Copied to:"
-            echo "output_artifacts/final_video.mp4"
-          else
-            echo ""
-            echo "======================================"
-            echo "ERROR: NO FINAL MP4 FOUND"
+            echo "ERROR: FINAL MP4 NOT FOUND"
             echo "======================================"
 
             echo ""
-            echo "Repository files:"
-            find . \
-              -not -path './node_modules/*' \
-              -not -path './.git/*' \
+            echo "All MP4 files found:"
+            find output \
               -type f \
+              -name "*.mp4" \
               -print \
-              2>/dev/null | head -n 300
+              2>/dev/null || true
+
+            echo ""
+            echo "Final directory contents:"
+            ls -lah output/final 2>/dev/null || true
 
             exit 1
           fi
+
+          echo ""
+          echo "======================================"
+          echo "FINAL VIDEO FOUND"
+          echo "======================================"
+
+          echo "Source:"
+          echo "$FINAL_VIDEO"
+
+          cp -f "$FINAL_VIDEO" output_artifacts/final_video.mp4
+
+          echo ""
+          echo "Copied final video to:"
+          echo "output_artifacts/final_video.mp4"
 
           echo ""
           echo "======================================"
@@ -254,17 +181,13 @@ jobs:
 
           ls -lah output_artifacts
 
-          echo ""
-          echo "MP4 count:"
-          find output_artifacts \
-            -maxdepth 1 \
-            -type f \
-            -name "*.mp4" \
-            | wc -l
-
       - name: Verify Generated Video
         run: |
-          echo "Checking for generated MP4..."
+          set -e
+
+          echo "======================================"
+          echo "VERIFYING GENERATED VIDEO"
+          echo "======================================"
 
           MP4_COUNT=$(find output_artifacts \
             -maxdepth 1 \
@@ -274,37 +197,103 @@ jobs:
 
           echo "MP4 count: $MP4_COUNT"
 
-          if [ "$MP4_COUNT" -eq 0 ]; then
-            echo "ERROR: No generated MP4 video was found."
+          if [ "$MP4_COUNT" -ne 1 ]; then
+            echo "ERROR: Expected exactly 1 final MP4."
             exit 1
           fi
 
-          echo "Generated video found successfully."
+          test -f output_artifacts/final_video.mp4
 
-      - name: Validate Generated Videos
+          echo "Final MP4 found successfully."
+
+      - name: Validate Generated Video
         run: |
-          for video in output_artifacts/*.mp4
-          do
-            echo "======================================"
-            echo "Validating: $video"
-            echo "======================================"
+          set -e
 
-            test -f "$video"
+          VIDEO="output_artifacts/final_video.mp4"
 
-            ffprobe \
-              -v error \
-              -show_entries format=duration \
-              -show_entries stream=codec_name,width,height \
-              -of default=noprint_wrappers=1 \
-              "$video"
+          echo "======================================"
+          echo "VALIDATING FINAL VIDEO"
+          echo "======================================"
 
-            echo "Video validation completed."
-          done
+          test -f "$VIDEO"
+
+          echo ""
+          echo "FFPROBE INFORMATION:"
+          ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -show_entries stream=index,codec_type,codec_name,width,height,r_frame_rate \
+            -of default=noprint_wrappers=1 \
+            "$VIDEO"
+
+          echo ""
+          echo "Checking video stream..."
+
+          VIDEO_STREAM=$(ffprobe \
+            -v error \
+            -select_streams v:0 \
+            -show_entries stream=codec_type \
+            -of csv=p=0 \
+            "$VIDEO")
+
+          if [ "$VIDEO_STREAM" != "video" ]; then
+            echo "ERROR: No valid video stream found."
+            exit 1
+          fi
+
+          echo "Video stream: OK"
+
+          echo ""
+          echo "Checking audio stream..."
+
+          AUDIO_STREAM=$(ffprobe \
+            -v error \
+            -select_streams a:0 \
+            -show_entries stream=codec_type \
+            -of csv=p=0 \
+            "$VIDEO" || true)
+
+          if [ "$AUDIO_STREAM" != "audio" ]; then
+            echo "ERROR: No valid audio stream found."
+            exit 1
+          fi
+
+          echo "Audio stream: OK"
+
+          echo ""
+          echo "Checking resolution..."
+
+          WIDTH=$(ffprobe \
+            -v error \
+            -select_streams v:0 \
+            -show_entries stream=width \
+            -of csv=p=0 \
+            "$VIDEO")
+
+          HEIGHT=$(ffprobe \
+            -v error \
+            -select_streams v:0 \
+            -show_entries stream=height \
+            -of csv=p=0 \
+            "$VIDEO")
+
+          echo "Resolution: ${WIDTH}x${HEIGHT}"
+
+          if [ "$WIDTH" -ne 1080 ] || [ "$HEIGHT" -ne 1920 ]; then
+            echo "ERROR: Expected 1080x1920 video."
+            exit 1
+          fi
+
+          echo ""
+          echo "======================================"
+          echo "FINAL VIDEO VALIDATION PASSED"
+          echo "======================================"
 
       - name: Upload Video Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: generated-youtube-short
-          path: output_artifacts/*.mp4
+          path: output_artifacts/final_video.mp4
           if-no-files-found: error
