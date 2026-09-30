@@ -1,0 +1,264 @@
+import fs from "fs";
+import path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
+
+const DEFAULT_VOLUME = Number(
+  process.env.BACKGROUND_MUSIC_VOLUME ?? 0.10
+);
+
+const DEFAULT_MUSIC_PATH = path.resolve(
+  process.env.BACKGROUND_MUSIC_PATH ??
+    "./output/music/background.mp3"
+);
+
+function assertValidVolume(volume) {
+  if (!Number.isFinite(volume) || volume < 0 || volume > 1) {
+    throw new Error(
+      `[MusicEngine] Invalid music volume: ${volume}. Use 0.0 to 1.0.`
+    );
+  }
+}
+
+async function runFFmpeg(args) {
+  try {
+    await execFileAsync("ffmpeg", args, {
+      maxBuffer: 1024 * 1024 * 20
+    });
+  } catch (error) {
+    const details =
+      error?.stderr ||
+      error?.stdout ||
+      error?.message ||
+      "Unknown FFmpeg error";
+
+    throw new Error(`[MusicEngine] FFmpeg failed: ${details}`);
+  }
+}
+
+async function runFFprobe(args) {
+  try {
+    const { stdout } = await execFileAsync("ffprobe", args, {
+      maxBuffer: 1024 * 1024 * 10
+    });
+
+    return stdout.trim();
+  } catch (error) {
+    const details =
+      error?.stderr ||
+      error?.message ||
+      "Unknown FFprobe error";
+
+    throw new Error(`[MusicEngine] FFprobe failed: ${details}`);
+  }
+}
+
+export function getBackgroundMusicPath() {
+  return DEFAULT_MUSIC_PATH;
+}
+
+export function validateMusicFile(musicPath = DEFAULT_MUSIC_PATH) {
+  if (!fs.existsSync(musicPath)) {
+    throw new Error(
+      `[MusicEngine] Background music file not found: ${musicPath}`
+    );
+  }
+
+  const stats = fs.statSync(musicPath);
+
+  if (!stats.isFile()) {
+    throw new Error(
+      `[MusicEngine] Background music path is not a file: ${musicPath}`
+    );
+  }
+
+  if (stats.size <= 0) {
+    throw new Error(
+      `[MusicEngine] Background music file is empty: ${musicPath}`
+    );
+  }
+
+  return true;
+}
+
+export async function getMusicDuration(
+  musicPath = DEFAULT_MUSIC_PATH
+) {
+  validateMusicFile(musicPath);
+
+  const output = await runFFprobe([
+    "-v",
+    "error",
+    "-show_entries",
+    "format=duration",
+    "-of",
+    "default=noprint_wrappers=1:nokey=1",
+    musicPath
+  ]);
+
+  const duration = Number(output);
+
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(
+      `[MusicEngine] Invalid music duration: ${output}`
+    );
+  }
+
+  return duration;
+}
+
+export async function prepareBackgroundMusic(
+  duration,
+  outputPath,
+  options = {}
+) {
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(
+      `[MusicEngine] Invalid target duration: ${duration}`
+    );
+  }
+
+  const musicPath =
+    options.musicPath || DEFAULT_MUSIC_PATH;
+
+  const volume =
+    options.volume ?? DEFAULT_VOLUME;
+
+  validateMusicFile(musicPath);
+  assertValidVolume(volume);
+
+  const outputDir = path.dirname(outputPath);
+
+  fs.mkdirSync(outputDir, {
+    recursive: true
+  });
+
+  console.log(
+    `[MusicEngine] Preparing background music: ${duration.toFixed(2)}s`
+  );
+
+  console.log(
+    `[MusicEngine] Music volume: ${volume}`
+  );
+
+  await runFFmpeg([
+    "-y",
+    "-stream_loop",
+    "-1",
+    "-i",
+    musicPath,
+
+    "-t",
+    duration.toFixed(3),
+
+    "-vn",
+
+    "-af",
+    [
+      `volume=${volume}`,
+      "aresample=48000",
+      "apad",
+      `atrim=duration=${duration.toFixed(3)}`,
+      "asetpts=N/SR/TB"
+    ].join(","),
+
+    "-c:a",
+    "aac",
+
+    "-b:a",
+    "192k",
+
+    outputPath
+  ]);
+
+  if (!fs.existsSync(outputPath)) {
+    throw new Error(
+      `[MusicEngine] Prepared music was not created: ${outputPath}`
+    );
+  }
+
+  return outputPath;
+}
+
+export async function mixNarrationAndMusic(
+  narrationPath,
+  musicPath,
+  outputPath,
+  duration
+) {
+  if (!fs.existsSync(narrationPath)) {
+    throw new Error(
+      `[MusicEngine] Narration file not found: ${narrationPath}`
+    );
+  }
+
+  if (!fs.existsSync(musicPath)) {
+    throw new Error(
+      `[MusicEngine] Music file not found: ${musicPath}`
+    );
+  }
+
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(
+      `[MusicEngine] Invalid mix duration: ${duration}`
+    );
+  }
+
+  fs.mkdirSync(path.dirname(outputPath), {
+    recursive: true
+  });
+
+  console.log(
+    `[MusicEngine] Mixing narration + background music`
+  );
+
+  await runFFmpeg([
+    "-y",
+
+    "-i",
+    narrationPath,
+
+    "-i",
+    musicPath,
+
+    "-filter_complex",
+    [
+      "[0:a]aresample=48000,asetpts=PTS-STARTPTS[narration]",
+      "[1:a]aresample=48000,asetpts=PTS-STARTPTS[music]",
+      "[narration][music]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[mixed]",
+      `[mixed]atrim=duration=${duration.toFixed(3)},asetpts=N/SR/TB[outa]`
+    ].join(";"),
+
+    "-map",
+    "[outa]",
+
+    "-c:a",
+    "aac",
+
+    "-b:a",
+    "192k",
+
+    "-ar",
+    "48000",
+
+    outputPath
+  ]);
+
+  if (!fs.existsSync(outputPath)) {
+    throw new Error(
+      `[MusicEngine] Mixed audio was not created: ${outputPath}`
+    );
+  }
+
+  return outputPath;
+}
+
+export default {
+  getBackgroundMusicPath,
+  validateMusicFile,
+  getMusicDuration,
+  prepareBackgroundMusic,
+  mixNarrationAndMusic
+};
