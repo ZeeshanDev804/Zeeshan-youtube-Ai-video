@@ -5,12 +5,9 @@ import { promisify } from 'util';
 
 import { config } from '../config/index.mjs';
 
-const execFileAsync =
-  promisify(execFile);
+const execFileAsync = promisify(execFile);
 
-function ensureDirectory(
-  directory
-) {
+function ensureDirectory(directory) {
   if (!fs.existsSync(directory)) {
     fs.mkdirSync(directory, {
       recursive: true
@@ -18,162 +15,130 @@ function ensureDirectory(
   }
 }
 
-function escapeConcatPath(
-  filePath
-) {
-  return String(filePath)
-    .replace(/\\/g, '/')
-    .replace(/'/g, "'\\''");
-}
-
-async function runFFmpeg(
-  args
-) {
+async function runFFmpeg(args) {
   console.log(
     `[RenderEngine] ffmpeg ${args.join(' ')}`
   );
 
   try {
-    const result =
-      await execFileAsync(
-        'ffmpeg',
-        args,
-        {
-          maxBuffer:
-            10 * 1024 * 1024
-        }
-      );
-
-    return result;
+    return await execFileAsync(
+      'ffmpeg',
+      args,
+      {
+        maxBuffer: 20 * 1024 * 1024
+      }
+    );
   } catch (error) {
+    const stderr = String(
+      error?.stderr ||
+      error?.message ||
+      error
+    ).trim();
+
     throw new Error(
-      `[RenderEngine] FFmpeg failed: ${
-        error?.stderr ||
-        error?.message ||
-        error
-      }`
+      `[RenderEngine] FFmpeg failed:\n${stderr}`
     );
   }
 }
 
-async function runFFprobe(
-  args
-) {
+async function runFFprobe(args) {
   try {
-    const result =
-      await execFileAsync(
-        'ffprobe',
-        args,
-        {
-          maxBuffer:
-            10 * 1024 * 1024
-        }
-      );
-
-    return result;
+    return await execFileAsync(
+      'ffprobe',
+      args,
+      {
+        maxBuffer: 20 * 1024 * 1024
+      }
+    );
   } catch (error) {
+    const stderr = String(
+      error?.stderr ||
+      error?.message ||
+      error
+    ).trim();
+
     throw new Error(
-      `[RenderEngine] FFprobe failed: ${
-        error?.stderr ||
-        error?.message ||
-        error
-      }`
+      `[RenderEngine] FFprobe failed:\n${stderr}`
     );
   }
 }
 
-async function getMediaInfo(
-  filePath
-) {
-  if (
-    !fs.existsSync(
-      filePath
-    )
-  ) {
+async function getMediaInfo(filePath) {
+  if (!fs.existsSync(filePath)) {
     throw new Error(
       `[RenderEngine] Media file not found: ${filePath}`
     );
   }
 
-  const { stdout } =
-    await runFFprobe([
-      '-v',
-      'error',
-      '-show_entries',
-      'format=duration',
-      '-show_entries',
-      'stream=index,codec_type,width,height,codec_name,sample_rate,channels',
-      '-of',
-      'json',
-      filePath
-    ]);
+  const { stdout } = await runFFprobe([
+    '-v',
+    'error',
+    '-show_entries',
+    'format=duration',
+    '-show_entries',
+    'stream=index,codec_type,width,height,codec_name,sample_rate,channels,r_frame_rate',
+    '-of',
+    'json',
+    filePath
+  ]);
 
-  const data =
-    JSON.parse(
-      stdout
+  let data;
+
+  try {
+    data = JSON.parse(stdout);
+  } catch {
+    throw new Error(
+      `[RenderEngine] Invalid FFprobe JSON for: ${filePath}`
     );
+  }
 
-  const streams =
-    Array.isArray(
-      data.streams
-    )
-      ? data.streams
-      : [];
+  const streams = Array.isArray(data?.streams)
+    ? data.streams
+    : [];
 
-  const video =
-    streams.find(
-      stream =>
-        stream.codec_type ===
-        'video'
-    );
+  const video = streams.find(
+    stream =>
+      stream.codec_type === 'video'
+  );
 
-  const audio =
-    streams.find(
-      stream =>
-        stream.codec_type ===
-        'audio'
-    );
+  const audio = streams.find(
+    stream =>
+      stream.codec_type === 'audio'
+  );
 
   return {
-    duration:
-      Number(
-        data?.format?.duration ||
-        0
-      ),
+    duration: Number(
+      data?.format?.duration || 0
+    ),
 
-    hasVideo:
-      Boolean(video),
+    hasVideo: Boolean(video),
 
-    hasAudio:
-      Boolean(audio),
+    hasAudio: Boolean(audio),
 
-    width:
-      Number(
-        video?.width || 0
-      ),
+    width: Number(
+      video?.width || 0
+    ),
 
-    height:
-      Number(
-        video?.height || 0
-      ),
+    height: Number(
+      video?.height || 0
+    ),
 
     videoCodec:
-      video?.codec_name ||
-      '',
+      video?.codec_name || '',
 
     audioCodec:
-      audio?.codec_name ||
-      '',
+      audio?.codec_name || '',
 
-    sampleRate:
-      Number(
-        audio?.sample_rate || 0
-      ),
+    sampleRate: Number(
+      audio?.sample_rate || 0
+    ),
 
-    channels:
-      Number(
-        audio?.channels || 0
-      )
+    channels: Number(
+      audio?.channels || 0
+    ),
+
+    frameRate:
+      video?.r_frame_rate || ''
   };
 }
 
@@ -184,40 +149,59 @@ async function normalizeVideo(
 ) {
   ensureDirectory(
     path.dirname(
-      path.resolve(
-        outputPath
-      )
+      path.resolve(outputPath)
     )
   );
 
-  const safeDuration =
-    Math.max(
-      Number(duration || 1),
-      0.1
+  if (!fs.existsSync(inputPath)) {
+    throw new Error(
+      `[RenderEngine] Input video not found: ${inputPath}`
     );
+  }
 
+  const requestedDuration = Number(duration);
+
+  if (
+    !Number.isFinite(requestedDuration) ||
+    requestedDuration <= 0
+  ) {
+    throw new Error(
+      `[RenderEngine] Invalid scene duration: ${duration}`
+    );
+  }
+
+  /*
+   * We loop the source video so short stock clips
+   * can safely cover the complete narration duration.
+   *
+   * The final output is always:
+   * 1080x1920
+   * configured FPS
+   * H.264
+   * no audio
+   */
   await runFFmpeg([
     '-y',
+
+    '-stream_loop',
+    '-1',
 
     '-i',
     inputPath,
 
     '-t',
-    String(
-      safeDuration
-    ),
+    String(requestedDuration),
 
     '-vf',
     [
       `scale=${config.videoConfig.width}:${config.videoConfig.height}:force_original_aspect_ratio=increase`,
       `crop=${config.videoConfig.width}:${config.videoConfig.height}`,
-      'setsar=1'
+      'setsar=1',
+      'format=yuv420p'
     ].join(','),
 
     '-r',
-    String(
-      config.videoConfig.fps
-    ),
+    String(config.videoConfig.fps),
 
     '-an',
 
@@ -231,9 +215,7 @@ async function normalizeVideo(
     'medium',
 
     '-crf',
-    String(
-      config.videoConfig.crf
-    ),
+    String(config.videoConfig.crf),
 
     '-movflags',
     '+faststart',
@@ -241,39 +223,48 @@ async function normalizeVideo(
     outputPath
   ]);
 
+  if (!fs.existsSync(outputPath)) {
+    throw new Error(
+      `[RenderEngine] Normalized video was not created: ${outputPath}`
+    );
+  }
+
+  const info =
+    await getMediaInfo(outputPath);
+
+  if (!info.hasVideo) {
+    throw new Error(
+      `[RenderEngine] Normalized scene has no video stream: ${outputPath}`
+    );
+  }
+
+  if (
+    info.width !==
+      config.videoConfig.width ||
+    info.height !==
+      config.videoConfig.height
+  ) {
+    throw new Error(
+      `[RenderEngine] Normalized scene has wrong resolution: ${info.width}x${info.height}`
+    );
+  }
+
+  if (
+    Math.abs(
+      info.duration -
+      requestedDuration
+    ) > 0.75
+  ) {
+    throw new Error(
+      `[RenderEngine] Normalized scene duration mismatch. Expected ${requestedDuration.toFixed(
+        2
+      )}s, received ${info.duration.toFixed(
+        2
+      )}s.`
+    );
+  }
+
   return outputPath;
-}
-
-async function createConcatFile(
-  files,
-  concatPath
-) {
-  ensureDirectory(
-    path.dirname(
-      path.resolve(
-        concatPath
-      )
-    )
-  );
-
-  const content =
-    files
-      .map(
-        file =>
-          `file '${escapeConcatPath(
-            path.resolve(file)
-          )}'`
-      )
-      .join('\n') +
-    '\n';
-
-  fs.writeFileSync(
-    concatPath,
-    content,
-    'utf8'
-  );
-
-  return concatPath;
 }
 
 async function combineVideos(
@@ -282,9 +273,7 @@ async function combineVideos(
   workingDirectory
 ) {
   if (
-    !Array.isArray(
-      videoPaths
-    ) ||
+    !Array.isArray(videoPaths) ||
     videoPaths.length === 0
   ) {
     throw new Error(
@@ -293,13 +282,22 @@ async function combineVideos(
   }
 
   if (
-    videoPaths.length !==
-    durations.length
+    !Array.isArray(durations) ||
+    durations.length !==
+      videoPaths.length
   ) {
     throw new Error(
-      `[RenderEngine] Scene video count (${videoPaths.length}) does not match duration count (${durations.length}).`
+      `[RenderEngine] Scene video count (${videoPaths.length}) does not match duration count (${
+        Array.isArray(durations)
+          ? durations.length
+          : 0
+      }).`
     );
   }
+
+  ensureDirectory(
+    workingDirectory
+  );
 
   const normalizedDirectory =
     path.join(
@@ -311,9 +309,11 @@ async function combineVideos(
     normalizedDirectory
   );
 
-  const normalizedPaths =
-    [];
+  const normalizedPaths = [];
 
+  /*
+   * Normalize every scene first.
+   */
   for (
     let index = 0;
     index < videoPaths.length;
@@ -323,28 +323,24 @@ async function combineVideos(
       videoPaths[index];
 
     const duration =
-      Number(
-        durations[index]
-      );
+      Number(durations[index]);
 
-    if (
-      !fs.existsSync(
-        inputPath
-      )
-    ) {
+    if (!fs.existsSync(inputPath)) {
       throw new Error(
-        `[RenderEngine] Scene video ${index + 1} does not exist: ${inputPath}`
+        `[RenderEngine] Scene video ${
+          index + 1
+        } does not exist: ${inputPath}`
       );
     }
 
     if (
-      !Number.isFinite(
-        duration
-      ) ||
+      !Number.isFinite(duration) ||
       duration <= 0
     ) {
       throw new Error(
-        `[RenderEngine] Invalid duration for scene ${index + 1}.`
+        `[RenderEngine] Invalid duration for scene ${
+          index + 1
+        }: ${durations[index]}`
       );
     }
 
@@ -355,6 +351,14 @@ async function combineVideos(
           index + 1
         ).padStart(2, '0')}.mp4`
       );
+
+    console.log(
+      `[RenderEngine] Normalizing scene ${
+        index + 1
+      }/${videoPaths.length} for ${duration.toFixed(
+        2
+      )}s`
+    );
 
     await normalizeVideo(
       inputPath,
@@ -367,15 +371,55 @@ async function combineVideos(
     );
   }
 
-  const concatPath =
-    path.join(
-      workingDirectory,
-      'scenes.txt'
-    );
+  /*
+   * IMPORTANT:
+   *
+   * Do NOT use:
+   *   -f concat
+   *   -c copy
+   *
+   * because independently generated MP4
+   * containers can have timestamp/timebase
+   * differences.
+   *
+   * Instead, use the FFmpeg concat FILTER
+   * and re-encode one final video stream.
+   */
+  const concatInputs = [];
 
-  await createConcatFile(
-    normalizedPaths,
-    concatPath
+  for (
+    let index = 0;
+    index < normalizedPaths.length;
+    index += 1
+  ) {
+    concatInputs.push(
+      '-i',
+      normalizedPaths[index]
+    );
+  }
+
+  const filterParts = [];
+
+  for (
+    let index = 0;
+    index < normalizedPaths.length;
+    index += 1
+  ) {
+    filterParts.push(
+      `[${index}:v:0]setpts=PTS-STARTPTS[v${index}]`
+    );
+  }
+
+  const concatLabels =
+    normalizedPaths
+      .map(
+        (_, index) =>
+          `[v${index}]`
+      )
+      .join('');
+
+  filterParts.push(
+    `${concatLabels}concat=n=${normalizedPaths.length}:v=1:a=0[outv]`
   );
 
   const combinedPath =
@@ -384,23 +428,88 @@ async function combineVideos(
       'combined-video.mp4'
     );
 
+  console.log(
+    `[RenderEngine] Combining ${normalizedPaths.length} normalized scenes...`
+  );
+
   await runFFmpeg([
     '-y',
 
-    '-f',
-    'concat',
+    ...concatInputs,
 
-    '-safe',
-    '0',
+    '-filter_complex',
+    filterParts.join(';'),
 
-    '-i',
-    concatPath,
+    '-map',
+    '[outv]',
 
-    '-c',
-    'copy',
+    '-an',
+
+    '-c:v',
+    config.videoConfig.videoCodec,
+
+    '-pix_fmt',
+    config.videoConfig.pixelFormat,
+
+    '-r',
+    String(config.videoConfig.fps),
+
+    '-preset',
+    'medium',
+
+    '-crf',
+    String(config.videoConfig.crf),
+
+    '-movflags',
+    '+faststart',
 
     combinedPath
   ]);
+
+  if (!fs.existsSync(combinedPath)) {
+    throw new Error(
+      `[RenderEngine] Combined video was not created: ${combinedPath}`
+    );
+  }
+
+  const combinedInfo =
+    await getMediaInfo(
+      combinedPath
+    );
+
+  if (!combinedInfo.hasVideo) {
+    throw new Error(
+      '[RenderEngine] Combined video has no video stream.'
+    );
+  }
+
+  const expectedDuration =
+    durations.reduce(
+      (total, value) =>
+        total + Number(value || 0),
+      0
+    );
+
+  if (
+    Math.abs(
+      combinedInfo.duration -
+      expectedDuration
+    ) > 1.0
+  ) {
+    throw new Error(
+      `[RenderEngine] Combined video duration mismatch. Expected approximately ${expectedDuration.toFixed(
+        2
+      )}s, received ${combinedInfo.duration.toFixed(
+        2
+      )}s.`
+    );
+  }
+
+  console.log(
+    `[RenderEngine] Combined video ready: ${combinedInfo.duration.toFixed(
+      2
+    )}s`
+  );
 
   return combinedPath;
 }
@@ -410,6 +519,15 @@ async function createTimedAudio(
   sceneDurations,
   workingDirectory
 ) {
+  if (
+    !Array.isArray(sceneAudioPaths) ||
+    !Array.isArray(sceneDurations)
+  ) {
+    throw new Error(
+      '[RenderEngine] Scene audio and duration arrays are required.'
+    );
+  }
+
   if (
     sceneAudioPaths.length !==
     sceneDurations.length
@@ -429,8 +547,7 @@ async function createTimedAudio(
     audioDirectory
   );
 
-  const normalizedAudioPaths =
-    [];
+  const normalizedAudioPaths = [];
 
   for (
     let index = 0;
@@ -446,13 +563,22 @@ async function createTimedAudio(
         sceneDurations[index]
       );
 
+    if (!fs.existsSync(audioPath)) {
+      throw new Error(
+        `[RenderEngine] Scene audio ${
+          index + 1
+        } not found: ${audioPath}`
+      );
+    }
+
     if (
-      !fs.existsSync(
-        audioPath
-      )
+      !Number.isFinite(duration) ||
+      duration <= 0
     ) {
       throw new Error(
-        `[RenderEngine] Scene audio ${index + 1} not found: ${audioPath}`
+        `[RenderEngine] Invalid audio duration for scene ${
+          index + 1
+        }.`
       );
     }
 
@@ -463,6 +589,14 @@ async function createTimedAudio(
           index + 1
         ).padStart(2, '0')}.m4a`
       );
+
+    console.log(
+      `[RenderEngine] Normalizing audio ${
+        index + 1
+      }/${sceneAudioPaths.length} for ${duration.toFixed(
+        2
+      )}s`
+    );
 
     await runFFmpeg([
       '-y',
@@ -477,30 +611,71 @@ async function createTimedAudio(
         `atrim=duration=${duration}`
       ].join(','),
 
+      '-ar',
+      '48000',
+
+      '-ac',
+      '2',
+
       '-c:a',
       'aac',
 
       '-b:a',
-      config.videoConfig
-        .audioBitrate,
+      config.videoConfig.audioBitrate,
 
       outputPath
     ]);
+
+    if (!fs.existsSync(outputPath)) {
+      throw new Error(
+        `[RenderEngine] Normalized audio was not created: ${outputPath}`
+      );
+    }
 
     normalizedAudioPaths.push(
       outputPath
     );
   }
 
-  const concatPath =
-    path.join(
-      workingDirectory,
-      'audio.txt'
-    );
+  /*
+   * Use concat FILTER for audio as well.
+   * This avoids MP4/M4A stream-copy timestamp
+   * incompatibilities.
+   */
+  const audioInputs = [];
 
-  await createConcatFile(
-    normalizedAudioPaths,
-    concatPath
+  for (
+    const audioPath of normalizedAudioPaths
+  ) {
+    audioInputs.push(
+      '-i',
+      audioPath
+    );
+  }
+
+  const audioFilterParts = [];
+
+  for (
+    let index = 0;
+    index <
+    normalizedAudioPaths.length;
+    index += 1
+  ) {
+    audioFilterParts.push(
+      `[${index}:a:0]asetpts=PTS-STARTPTS[a${index}]`
+    );
+  }
+
+  const audioLabels =
+    normalizedAudioPaths
+      .map(
+        (_, index) =>
+          `[a${index}]`
+      )
+      .join('');
+
+  audioFilterParts.push(
+    `${audioLabels}concat=n=${normalizedAudioPaths.length}:v=0:a=1[outa]`
   );
 
   const finalAudioPath =
@@ -512,20 +687,67 @@ async function createTimedAudio(
   await runFFmpeg([
     '-y',
 
-    '-f',
-    'concat',
+    ...audioInputs,
 
-    '-safe',
-    '0',
+    '-filter_complex',
+    audioFilterParts.join(';'),
 
-    '-i',
-    concatPath,
+    '-map',
+    '[outa]',
 
-    '-c',
-    'copy',
+    '-ar',
+    '48000',
+
+    '-ac',
+    '2',
+
+    '-c:a',
+    'aac',
+
+    '-b:a',
+    config.videoConfig.audioBitrate,
 
     finalAudioPath
   ]);
+
+  if (!fs.existsSync(finalAudioPath)) {
+    throw new Error(
+      `[RenderEngine] Complete narration was not created: ${finalAudioPath}`
+    );
+  }
+
+  const info =
+    await getMediaInfo(
+      finalAudioPath
+    );
+
+  if (!info.hasAudio) {
+    throw new Error(
+      '[RenderEngine] Complete narration has no audio stream.'
+    );
+  }
+
+  const expectedDuration =
+    sceneDurations.reduce(
+      (total, value) =>
+        total + Number(value || 0),
+      0
+    );
+
+  if (
+    Math.abs(
+      info.duration -
+      expectedDuration
+    ) > 1.0
+  ) {
+    throw new Error(
+      `[RenderEngine] Complete narration duration mismatch. Expected approximately ${expectedDuration.toFixed(
+        2
+      )}s, received ${info.duration.toFixed(
+        2
+      )}s.`
+    );
+  }
 
   return finalAudioPath;
 }
@@ -535,23 +757,15 @@ async function addVoiceover(
   audioPath,
   outputPath
 ) {
-  if (
-    !fs.existsSync(
-      videoPath
-    )
-  ) {
+  if (!fs.existsSync(videoPath)) {
     throw new Error(
-      '[RenderEngine] Video file does not exist.'
+      `[RenderEngine] Video file does not exist: ${videoPath}`
     );
   }
 
-  if (
-    !fs.existsSync(
-      audioPath
-    )
-  ) {
+  if (!fs.existsSync(audioPath)) {
     throw new Error(
-      '[RenderEngine] Audio file does not exist.'
+      `[RenderEngine] Audio file does not exist: ${audioPath}`
     );
   }
 
@@ -571,20 +785,22 @@ async function addVoiceover(
     '1:a:0',
 
     '-c:v',
-    config.videoConfig
-      .videoCodec,
+    config.videoConfig.videoCodec,
 
     '-c:a',
-    config.videoConfig
-      .audioCodec,
+    config.videoConfig.audioCodec,
 
     '-b:a',
-    config.videoConfig
-      .audioBitrate,
+    config.videoConfig.audioBitrate,
+
+    '-ar',
+    '48000',
+
+    '-ac',
+    '2',
 
     '-pix_fmt',
-    config.videoConfig
-      .pixelFormat,
+    config.videoConfig.pixelFormat,
 
     '-r',
     String(
@@ -599,6 +815,12 @@ async function addVoiceover(
     outputPath
   ]);
 
+  if (!fs.existsSync(outputPath)) {
+    throw new Error(
+      `[RenderEngine] Final temporary video was not created: ${outputPath}`
+    );
+  }
+
   return outputPath;
 }
 
@@ -611,17 +833,13 @@ async function validateRenderedVideo(
       outputPath
     );
 
-  if (
-    !info.hasVideo
-  ) {
+  if (!info.hasVideo) {
     throw new Error(
       '[RenderEngine] Final video has no video stream.'
     );
   }
 
-  if (
-    !info.hasAudio
-  ) {
+  if (!info.hasAudio) {
     throw new Error(
       '[RenderEngine] Final video has no audio stream.'
     );
@@ -653,25 +871,19 @@ async function validateRenderedVideo(
   }
 
   const expected =
-    Number(
-      expectedDuration
-    );
+    Number(expectedDuration);
 
   if (
-    Number.isFinite(
-      expected
-    ) &&
+    Number.isFinite(expected) &&
     expected > 0
   ) {
     const difference =
       Math.abs(
         info.duration -
-          expected
+        expected
       );
 
-    if (
-      difference > 1.0
-    ) {
+    if (difference > 1.0) {
       throw new Error(
         `[RenderEngine] Final duration mismatch. Expected approximately ${expected.toFixed(
           2
@@ -688,7 +900,7 @@ async function validateRenderedVideo(
 /**
  * Main production renderer.
  *
- * Existing compatible signature:
+ * Compatible signature:
  *
  * renderFinalVideo(
  *   videoPaths,
@@ -696,7 +908,7 @@ async function validateRenderedVideo(
  *   outputPath
  * )
  *
- * New scene-aware signature:
+ * Scene-aware signature:
  *
  * renderFinalVideo(
  *   videoPaths,
@@ -712,9 +924,7 @@ export async function renderFinalVideo(
   options = {}
 ) {
   if (
-    !Array.isArray(
-      videoPaths
-    ) ||
+    !Array.isArray(videoPaths) ||
     videoPaths.length === 0
   ) {
     throw new Error(
@@ -736,18 +946,14 @@ export async function renderFinalVideo(
 
   ensureDirectory(
     path.dirname(
-      path.resolve(
-        outputPath
-      )
+      path.resolve(outputPath)
     )
   );
 
   const workingDirectory =
     path.join(
       path.dirname(
-        path.resolve(
-          outputPath
-        )
+        path.resolve(outputPath)
       ),
       `.render-${Date.now()}`
     );
@@ -766,10 +972,6 @@ export async function renderFinalVideo(
           )
         : null;
 
-    /*
-     * If scene durations are supplied,
-     * enforce exact scene count.
-     */
     if (
       sceneDurations &&
       sceneDurations.length !==
@@ -780,18 +982,8 @@ export async function renderFinalVideo(
       );
     }
 
-    /*
-     * If scene durations are not supplied,
-     * use actual video durations.
-     *
-     * This keeps backward compatibility with
-     * the existing orchestrator.
-     */
-    if (
-      !sceneDurations
-    ) {
-      sceneDurations =
-        [];
+    if (!sceneDurations) {
+      sceneDurations = [];
 
       for (
         const videoPath of videoPaths
@@ -801,9 +993,7 @@ export async function renderFinalVideo(
             videoPath
           );
 
-        if (
-          !info.hasVideo
-        ) {
+        if (!info.hasVideo) {
           throw new Error(
             `[RenderEngine] Scene has no video stream: ${videoPath}`
           );
@@ -825,10 +1015,6 @@ export async function renderFinalVideo(
     let finalAudio =
       audioPath;
 
-    /*
-     * When scene audio files are provided,
-     * create a synchronized complete narration.
-     */
     if (
       Array.isArray(
         options.sceneAudioPaths
@@ -873,9 +1059,6 @@ export async function renderFinalVideo(
       outputPath
     );
 
-    /*
-     * Final validation of the copied file.
-     */
     const finalInfo =
       await validateRenderedVideo(
         outputPath,
@@ -897,7 +1080,11 @@ export async function renderFinalVideo(
     );
 
     console.log(
-      `[RenderEngine] Audio: ${finalInfo.hasAudio ? 'OK' : 'MISSING'}`
+      `[RenderEngine] Audio: ${
+        finalInfo.hasAudio
+          ? 'OK'
+          : 'MISSING'
+      }`
     );
 
     return outputPath;
