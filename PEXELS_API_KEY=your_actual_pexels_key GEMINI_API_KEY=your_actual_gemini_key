@@ -3,34 +3,22 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 export const config = {
-  // =========================
-  // AI
-  // =========================
   geminiApiKey: process.env.GEMINI_API_KEY || '',
-
-  // =========================
-  // Visual Provider
-  // =========================
   pexelsApiKey: process.env.PEXELS_API_KEY || '',
 
-  // =========================
-  // Primary TTS - ElevenLabs
-  // =========================
-  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY || '',
-  elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID || '',
+  elevenLabsApiKey:
+    process.env.ELEVENLABS_API_KEY || '',
 
-  // =========================
-  // Backup TTS - Google Cloud
-  // =========================
+  elevenLabsVoiceId:
+    process.env.ELEVENLABS_VOICE_ID || '',
+
   googleCloudTtsApiKey:
     process.env.GOOGLE_CLOUD_TTS_API_KEY || '',
 
   googleCloudTtsVoice:
-    process.env.GOOGLE_CLOUD_TTS_VOICE || 'en-US-Neural2-D',
+    process.env.GOOGLE_CLOUD_TTS_VOICE ||
+    'en-US-Neural2-D',
 
-  // =========================
-  // Backup TTS - Amazon Polly
-  // =========================
   awsAccessKeyId:
     process.env.AWS_ACCESS_KEY_ID || '',
 
@@ -43,41 +31,34 @@ export const config = {
   awsPollyVoice:
     process.env.AWS_POLLY_VOICE || 'Matthew',
 
-  // =========================
-  // TTS System
-  // =========================
   ttsConfig: {
     primaryProvider:
-      process.env.TTS_PRIMARY_PROVIDER || 'elevenlabs',
+      process.env.TTS_PRIMARY_PROVIDER ||
+      'elevenlabs',
 
     enableGoogleBackup:
-      process.env.ENABLE_GOOGLE_TTS_BACKUP !== 'false',
+      process.env.TTS_ENABLE_GOOGLE_BACKUP !==
+      'false',
 
     enableAmazonBackup:
-      process.env.ENABLE_AMAZON_POLLY_BACKUP !== 'false',
+      process.env.TTS_ENABLE_AMAZON_BACKUP !==
+      'false',
 
     language:
-      process.env.TTS_LANGUAGE || 'en-US',
+      process.env.TTS_LANGUAGE ||
+      'en-US',
 
-    stability: Number(
-      process.env.ELEVENLABS_STABILITY || 0.5
-    ),
+    elevenLabs: {
+      modelId:
+        'eleven_multilingual_v2',
 
-    similarityBoost: Number(
-      process.env.ELEVENLABS_SIMILARITY_BOOST || 0.75
-    ),
-
-    style: Number(
-      process.env.ELEVENLABS_STYLE || 0.25
-    ),
-
-    speakerBoost:
-      process.env.ELEVENLABS_SPEAKER_BOOST !== 'false'
+      stability: 0.45,
+      similarityBoost: 0.80,
+      style: 0.20,
+      useSpeakerBoost: true
+    }
   },
 
-  // =========================
-  // Video
-  // =========================
   videoConfig: {
     width: 1080,
     height: 1920,
@@ -97,53 +78,51 @@ export const config = {
     audioBitrate: '192k'
   },
 
-  // =========================
-  // Story System
-  // =========================
   storyConfig: {
     minScenes: 6,
     maxScenes: 10,
 
     targetWordsPerMinute: 150,
 
-    requireHook: true,
-    requireCharacter: true,
-    requireGoal: true,
-    requireConflict: true,
-    requireSetback: true,
-    requireTurningPoint: true,
-    requireResolution: true,
-    requireEnding: true,
+    requiredElements: [
+      'hook',
+      'character',
+      'goal',
+      'conflict',
+      'setback',
+      'turningPoint',
+      'resolution',
+      'ending'
+    ],
 
     requireSceneNarration: true,
-    requireVisualPromptPerScene: true
+    requireVisualPrompt: true,
+    requireCharacterContinuity: true,
+    requireEnvironmentContinuity: true,
+    requireActionDescription: true
   },
 
-  // =========================
-  // Audience
-  // =========================
   audienceConfig: {
-    regions: ['US', 'UK', 'EU'],
+    regions: [
+      'US',
+      'UK',
+      'EU'
+    ],
 
-    primaryLanguage: 'en',
+    language: 'English',
 
     style: 'natural-english',
-
-    avoidHindiStyle: true,
 
     culturallyNatural: true
   },
 
-  // =========================
-  // Quality / QA
-  // =========================
   qualityConfig: {
     requireAudio: true,
     requireVideo: true,
 
     require1080x1920: true,
 
-    requireValidDuration: true,
+    requireDuration: true,
 
     requireCompleteNarration: true,
 
@@ -153,48 +132,48 @@ export const config = {
 
     requireStoryStructure: true,
 
-    minimumVisualScenes: 6
+    minimumVisualScenes: 6,
+
+    minimumNarrationWords: 45
   },
 
-  // =========================
-  // Safety
-  // =========================
   safetyConfig: {
-    enabled: true,
-
     checkOriginality: true,
 
-    checkReusedContentRisk: true,
+    checkReusedContent: true,
 
     checkMassProducedPatterns: true,
 
     checkSensitiveContent: true,
 
-    checkMisleadingAIContent: true,
+    checkMisleadingAI: true,
 
     checkMetadataRisk: true,
 
-    checkAIDisclosure: true,
+    requireAIDisclosureReview: true,
 
     blockHighRisk: true,
 
-    requireReviewForMediumRisk: true
+    reviewMediumRisk: true
   },
 
-  // =========================
-  // Output
-  // =========================
   outputDir:
-    process.env.OUTPUT_DIR || 'output_artifacts',
+    process.env.OUTPUT_DIR ||
+    'output',
 
   visualsDir:
-    process.env.VISUALS_DIR || 'output_artifacts/visuals',
+    process.env.VISUALS_DIR ||
+    'output/visuals',
 
   audioDir:
-    process.env.AUDIO_DIR || 'output_artifacts/audio',
+    process.env.AUDIO_DIR ||
+    'output/audio',
 
   finalDir:
-    process.env.FINAL_DIR || 'output_artifacts/final'
-};
+    process.env.FINAL_DIR ||
+    'output/final',
 
-export default config;
+  qaDir:
+    process.env.QA_DIR ||
+    'output/qa'
+};
