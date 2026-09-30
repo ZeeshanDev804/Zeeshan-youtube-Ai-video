@@ -60,7 +60,7 @@ jobs:
         if: always()
         run: |
           echo "======================================"
-          echo "GENERATED MP4 FILES"
+          echo "ALL GENERATED MP4 FILES"
           echo "======================================"
 
           find . \
@@ -68,29 +68,199 @@ jobs:
             -not -path './.git/*' \
             -type f \
             -name "*.mp4" \
-            -print
+            -print \
+            2>/dev/null || true
 
           echo ""
-          echo "Output directory:"
+          echo "======================================"
+          echo "OUTPUT DIRECTORIES"
+          echo "======================================"
+
+          echo "--- output_artifacts ---"
           find output_artifacts \
             -type f \
-            -print 2>/dev/null || true
+            -print \
+            2>/dev/null || true
+
+          echo ""
+          echo "--- output ---"
+          find output \
+            -type f \
+            -print \
+            2>/dev/null || true
+
+          echo ""
+          echo "--- final ---"
+          find final \
+            -type f \
+            -print \
+            2>/dev/null || true
 
       - name: Collect Generated Video Artifacts
         if: always()
         run: |
+          set -e
+
+          echo "======================================"
+          echo "SEARCHING FOR FINAL GENERATED VIDEO"
+          echo "======================================"
+
           mkdir -p output_artifacts
 
-          find output_artifacts \
-            -type f \
-            -name "*.mp4" \
-            -exec cp -f {} output_artifacts/ \;
+          FINAL_VIDEO=""
 
+          echo ""
+          echo "--- Checking output_artifacts ---"
+
+          while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              filename=$(basename "$file")
+
+              case "$filename" in
+                scene-*.mp4|scene_*.mp4|normalized-*.mp4|normalized_*.mp4|combined-video.mp4|video_only_temp.mp4)
+                  echo "Skipping intermediate: $file"
+                  ;;
+                *)
+                  FINAL_VIDEO="$file"
+                  echo "Candidate final video: $file"
+                  ;;
+              esac
+            fi
+          done < <(
+            find output_artifacts \
+              -type f \
+              -name "*.mp4" \
+              -print \
+              2>/dev/null
+          )
+
+          if [ -z "$FINAL_VIDEO" ]; then
+            echo ""
+            echo "--- Checking output ---"
+
+            while IFS= read -r file; do
+              if [ -n "$file" ]; then
+                filename=$(basename "$file")
+
+                case "$filename" in
+                  scene-*.mp4|scene_*.mp4|normalized-*.mp4|normalized_*.mp4|combined-video.mp4|video_only_temp.mp4)
+                    echo "Skipping intermediate: $file"
+                    ;;
+                  *)
+                    FINAL_VIDEO="$file"
+                    echo "Candidate final video: $file"
+                    ;;
+                esac
+              fi
+            done < <(
+              find output \
+                -type f \
+                -name "*.mp4" \
+                -print \
+                2>/dev/null
+            )
+          fi
+
+          if [ -z "$FINAL_VIDEO" ]; then
+            echo ""
+            echo "--- Checking final ---"
+
+            while IFS= read -r file; do
+              if [ -n "$file" ]; then
+                filename=$(basename "$file")
+
+                case "$filename" in
+                  scene-*.mp4|scene_*.mp4|normalized-*.mp4|normalized_*.mp4|combined-video.mp4|video_only_temp.mp4)
+                    echo "Skipping intermediate: $file"
+                    ;;
+                  *)
+                    FINAL_VIDEO="$file"
+                    echo "Candidate final video: $file"
+                    ;;
+                esac
+              fi
+            done < <(
+              find final \
+                -type f \
+                -name "*.mp4" \
+                -print \
+                2>/dev/null
+            )
+          fi
+
+          if [ -z "$FINAL_VIDEO" ]; then
+            echo ""
+            echo "--- Global final-video search ---"
+
+            while IFS= read -r file; do
+              if [ -n "$file" ]; then
+                filename=$(basename "$file")
+
+                case "$filename" in
+                  scene-*.mp4|scene_*.mp4|normalized-*.mp4|normalized_*.mp4|combined-video.mp4|video_only_temp.mp4)
+                    echo "Skipping intermediate: $file"
+                    ;;
+                  *)
+                    FINAL_VIDEO="$file"
+                    echo "Candidate final video: $file"
+                    ;;
+                esac
+              fi
+            done < <(
+              find . \
+                -not -path './node_modules/*' \
+                -not -path './.git/*' \
+                -type f \
+                -name "*.mp4" \
+                -print \
+                2>/dev/null
+            )
+          fi
+
+          if [ -n "$FINAL_VIDEO" ]; then
+            echo ""
+            echo "======================================"
+            echo "FINAL VIDEO FOUND"
+            echo "======================================"
+            echo "Source: $FINAL_VIDEO"
+
+            cp -f "$FINAL_VIDEO" output_artifacts/final_video.mp4
+
+            echo ""
+            echo "Copied to:"
+            echo "output_artifacts/final_video.mp4"
+          else
+            echo ""
+            echo "======================================"
+            echo "ERROR: NO FINAL MP4 FOUND"
+            echo "======================================"
+
+            echo ""
+            echo "Repository files:"
+            find . \
+              -not -path './node_modules/*' \
+              -not -path './.git/*' \
+              -type f \
+              -print \
+              2>/dev/null | head -n 300
+
+            exit 1
+          fi
+
+          echo ""
           echo "======================================"
           echo "FINAL ARTIFACT DIRECTORY"
           echo "======================================"
 
           ls -lah output_artifacts
+
+          echo ""
+          echo "MP4 count:"
+          find output_artifacts \
+            -maxdepth 1 \
+            -type f \
+            -name "*.mp4" \
+            | wc -l
 
       - name: Verify Generated Video
         run: |
