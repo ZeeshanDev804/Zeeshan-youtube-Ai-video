@@ -1,235 +1,294 @@
 import fs from 'fs';
 import path from 'path';
 import https from 'https';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 
-import config from './config/index.mjs';
+import { config } from './config/index.mjs';
 import { generateScript } from './modules/scriptEngine.mjs';
-import { buildSceneVisuals } from './modules/visualEngine.mjs';
-import { generateVoiceover } from './modules/voiceEngine.mjs';
-import { renderFinalVideo } from './modules/renderEngine.mjs';
+import {
+  buildSceneVisuals,
+  downloadVisual
+} from './modules/visualEngine.mjs';
+import {
+  generateSceneVoiceovers
+} from './modules/voiceEngine.mjs';
+import {
+  renderFinalVideo,
+  getMediaInfo
+} from './modules/renderEngine.mjs';
 
-const OUTPUT_DIR = path.resolve(
-  process.env.OUTPUT_DIR ||
-  config.outputDir ||
-  'output_artifacts'
-);
+const execFileAsync =
+  promisify(execFile);
 
-const VISUAL_DIR = path.join(OUTPUT_DIR, 'visuals');
-const AUDIO_DIR = path.join(OUTPUT_DIR, 'audio');
-const FINAL_DIR = path.join(OUTPUT_DIR, 'final');
+const OUTPUT_DIR =
+  path.resolve(
+    config.outputDir ||
+      'output_artifacts'
+  );
 
-function ensureDirectories() {
-  for (const directory of [
-    OUTPUT_DIR,
-    VISUAL_DIR,
-    AUDIO_DIR,
-    FINAL_DIR
-  ]) {
-    fs.mkdirSync(directory, {
+const VISUAL_DIR =
+  path.resolve(
+    config.visualsDir ||
+      path.join(
+        OUTPUT_DIR,
+        'visuals'
+      )
+  );
+
+const AUDIO_DIR =
+  path.resolve(
+    config.audioDir ||
+      path.join(
+        OUTPUT_DIR,
+        'audio'
+      )
+  );
+
+const FINAL_DIR =
+  path.resolve(
+    config.finalDir ||
+      path.join(
+        OUTPUT_DIR,
+        'final'
+      )
+  );
+
+function ensureDirectory(
+  directory
+) {
+  fs.mkdirSync(
+    directory,
+    {
       recursive: true
-    });
-  }
+    }
+  );
 }
 
-function cleanText(value) {
+function cleanName(
+  value
+) {
   return String(value || '')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9]+/g,
+      '-'
+    )
+    .replace(
+      /^-+|-+$/g,
+      ''
+    )
+    .slice(0, 80) ||
+    'video';
 }
 
 function parseArguments() {
-  const args = process.argv.slice(2);
+  const args =
+    process.argv.slice(2);
 
-  let topic = '';
-  let count = 1;
+  let topic =
+    '';
 
-  for (const arg of args) {
-    if (arg.startsWith('--count=')) {
-      const value = Number(
-        arg.split('=').slice(1).join('=')
-      );
+  let count =
+    1;
 
-      if (Number.isFinite(value) && value > 0) {
-        count = Math.min(Math.floor(value), 10);
-      }
+  for (
+    let index = 0;
+    index < args.length;
+    index += 1
+  ) {
+    const arg =
+      args[index];
+
+    if (
+      arg ===
+      '--count'
+    ) {
+      count =
+        Number(
+          args[index + 1] || 1
+        );
+
+      index += 1;
 
       continue;
     }
 
-    if (!arg.startsWith('--') && !topic) {
-      topic = cleanText(arg);
+    if (
+      arg.startsWith(
+        '--count='
+      )
+    ) {
+      count =
+        Number(
+          arg.split('=')[1]
+        );
+
+      continue;
+    }
+
+    if (
+      !arg.startsWith(
+        '--'
+      )
+    ) {
+      topic =
+        topic
+          ? `${topic} ${arg}`
+          : arg;
     }
   }
 
+  if (
+    !Number.isFinite(
+      count
+    ) ||
+    count < 1
+  ) {
+    count = 1;
+  }
+
   return {
-    topic,
-    count
+    topic:
+      topic.trim(),
+
+    count:
+      Math.min(
+        Math.floor(count),
+        20
+      )
   };
 }
 
-function downloadFile(url, destination, redirects = 0) {
-  return new Promise((resolve, reject) => {
-    if (!url) {
-      reject(
-        new Error(
-          '[Orchestrator] Visual URL is missing.'
-        )
-      );
-      return;
-    }
+function downloadFile(
+  url,
+  outputPath
+) {
+  return new Promise(
+    (resolve, reject) => {
+      const request =
+        https.get(
+          url,
+          response => {
+            if (
+              response.statusCode >=
+                300 &&
+              response.statusCode <
+                400 &&
+              response.headers.location
+            ) {
+              response.resume();
 
-    if (redirects > 5) {
-      reject(
-        new Error(
-          '[Orchestrator] Too many HTTP redirects.'
-        )
-      );
-      return;
-    }
-
-    const outputDirectory = path.dirname(
-      path.resolve(destination)
-    );
-
-    fs.mkdirSync(outputDirectory, {
-      recursive: true
-    });
-
-    const request = https.get(
-      url,
-      {
-        headers: {
-          'User-Agent':
-            'ZEESHAN-AI-LABS-Video-Generator/1.0'
-        }
-      },
-      response => {
-        const statusCode = response.statusCode || 0;
-
-        if (
-          statusCode >= 300 &&
-          statusCode < 400 &&
-          response.headers.location
-        ) {
-          response.resume();
-
-          downloadFile(
-            response.headers.location,
-            destination,
-            redirects + 1
-          )
-            .then(resolve)
-            .catch(reject);
-
-          return;
-        }
-
-        if (statusCode !== 200) {
-          response.resume();
-
-          reject(
-            new Error(
-              `[Orchestrator] Download failed with HTTP ${statusCode}: ${url}`
-            )
-          );
-
-          return;
-        }
-
-        const file = fs.createWriteStream(
-          destination
-        );
-
-        let finished = false;
-
-        const fail = error => {
-          if (finished) return;
-
-          finished = true;
-
-          file.destroy();
-
-          try {
-            fs.unlinkSync(destination);
-          } catch {
-            // Ignore cleanup errors.
-          }
-
-          reject(error);
-        };
-
-        response.on('error', fail);
-        file.on('error', fail);
-
-        file.on('finish', () => {
-          if (finished) return;
-
-          finished = true;
-
-          file.close(error => {
-            if (error) {
-              reject(error);
-              return;
+              return downloadFile(
+                response.headers.location,
+                outputPath
+              )
+                .then(resolve)
+                .catch(reject);
             }
 
-            if (!fs.existsSync(destination)) {
-              reject(
+            if (
+              response.statusCode !==
+              200
+            ) {
+              response.resume();
+
+              return reject(
                 new Error(
-                  '[Orchestrator] Downloaded file was not created.'
+                  `Visual download failed with HTTP ${response.statusCode}`
                 )
               );
-              return;
             }
 
-            const stats = fs.statSync(
-              destination
+            ensureDirectory(
+              path.dirname(
+                outputPath
+              )
             );
 
-            if (stats.size < 50 * 1024) {
-              try {
-                fs.unlinkSync(destination);
-              } catch {
-                // Ignore cleanup errors.
-              }
-
-              reject(
-                new Error(
-                  `[Orchestrator] Downloaded file is too small: ${stats.size} bytes`
-                )
+            const file =
+              fs.createWriteStream(
+                outputPath
               );
 
-              return;
-            }
+            response.pipe(
+              file
+            );
 
-            resolve(destination);
-          });
-        });
+            file.on(
+              'finish',
+              () => {
+                file.close(
+                  () => {
+                    try {
+                      const stats =
+                        fs.statSync(
+                          outputPath
+                        );
 
-        response.pipe(file);
-      }
-    );
+                      if (
+                        stats.size <
+                        50 * 1024
+                      ) {
+                        return reject(
+                          new Error(
+                            `Downloaded visual is too small: ${outputPath}`
+                          )
+                        );
+                      }
 
-    request.setTimeout(30000, () => {
-      request.destroy(
-        new Error(
-          '[Orchestrator] Download timeout.'
-        )
+                      resolve(
+                        outputPath
+                      );
+                    } catch (error) {
+                      reject(
+                        error
+                      );
+                    }
+                  }
+                );
+              }
+            );
+
+            file.on(
+              'error',
+              error => {
+                file.destroy();
+
+                reject(
+                  error
+                );
+              }
+            );
+          }
+        );
+
+      request.on(
+        'error',
+        reject
       );
-    });
 
-    request.on('error', error => {
-      reject(error);
-    });
-  });
+      request.setTimeout(
+        60000,
+        () => {
+          request.destroy(
+            new Error(
+              'Visual download timed out.'
+            )
+          );
+        }
+      );
+    }
+  );
 }
 
-async function getMediaInfo(filePath) {
-  const { execFile } = await import(
-    'child_process'
-  );
-
-  return new Promise((resolve, reject) => {
-    execFile(
+async function getVideoInfo(
+  filePath
+) {
+  const {
+    stdout
+  } =
+    await execFileAsync(
       'ffprobe',
       [
         '-v',
@@ -237,418 +296,760 @@ async function getMediaInfo(filePath) {
         '-show_entries',
         'format=duration',
         '-show_entries',
-        'stream=width,height,codec_name',
+        'stream=index,codec_type,width,height,codec_name',
         '-of',
         'json',
         filePath
-      ],
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(
-            new Error(
-              `[Orchestrator] ffprobe failed: ${
-                stderr || error.message
-              }`
-            )
-          );
-          return;
-        }
-
-        try {
-          const data = JSON.parse(stdout);
-
-          const videoStream =
-            data.streams?.find(
-              stream =>
-                stream.width &&
-                stream.height
-            );
-
-          resolve({
-            duration: Number(
-              data.format?.duration || 0
-            ),
-            width: Number(
-              videoStream?.width || 0
-            ),
-            height: Number(
-              videoStream?.height || 0
-            ),
-            codec:
-              videoStream?.codec_name || ''
-          });
-        } catch (parseError) {
-          reject(parseError);
-        }
-      }
+      ]
     );
-  });
+
+  const data =
+    JSON.parse(
+      stdout
+    );
+
+  const streams =
+    Array.isArray(
+      data.streams
+    )
+      ? data.streams
+      : [];
+
+  const video =
+    streams.find(
+      stream =>
+        stream.codec_type ===
+        'video'
+    );
+
+  const audio =
+    streams.find(
+      stream =>
+        stream.codec_type ===
+        'audio'
+    );
+
+  return {
+    duration:
+      Number(
+        data?.format?.duration ||
+          0
+      ),
+
+    width:
+      Number(
+        video?.width || 0
+      ),
+
+    height:
+      Number(
+        video?.height || 0
+      ),
+
+    hasVideo:
+      Boolean(video),
+
+    hasAudio:
+      Boolean(audio),
+
+    videoCodec:
+      video?.codec_name || '',
+
+    audioCodec:
+      audio?.codec_name || ''
+  };
 }
 
 async function validateFinalVideo(
   filePath
 ) {
-  if (!fs.existsSync(filePath)) {
+  if (
+    !fs.existsSync(
+      filePath
+    )
+  ) {
     throw new Error(
-      `[Orchestrator] Final video does not exist: ${filePath}`
+      `Final video does not exist: ${filePath}`
     );
   }
 
-  const stats = fs.statSync(filePath);
+  const stats =
+    fs.statSync(
+      filePath
+    );
 
-  if (stats.size === 0) {
+  if (
+    stats.size === 0
+  ) {
     throw new Error(
-      '[Orchestrator] Final video is empty.'
+      'Final video file is empty.'
     );
   }
 
-  const media = await getMediaInfo(filePath);
-
-  console.log(
-    `[Orchestrator] Final video duration: ${media.duration.toFixed(2)}s`
-  );
-
-  console.log(
-    `[Orchestrator] Final video resolution: ${media.width}x${media.height}`
-  );
-
-  if (media.duration < 20) {
-    throw new Error(
-      `[Orchestrator] Video is too short: ${media.duration.toFixed(2)}s`
+  const info =
+    await getVideoInfo(
+      filePath
     );
-  }
 
-  if (media.duration > 59) {
+  if (
+    !info.hasVideo
+  ) {
     throw new Error(
-      `[Orchestrator] Video is too long: ${media.duration.toFixed(2)}s`
+      'Final video has no video stream.'
     );
   }
 
   if (
-    media.width !== 1080 ||
-    media.height !== 1920
+    !info.hasAudio
   ) {
     throw new Error(
-      `[Orchestrator] Invalid resolution: ${media.width}x${media.height}. Expected 1080x1920.`
+      'Final video has no audio stream.'
     );
   }
 
-  return media;
+  if (
+    info.width !==
+      config.videoConfig.width ||
+    info.height !==
+      config.videoConfig.height
+  ) {
+    throw new Error(
+      `Wrong resolution: ${info.width}x${info.height}. Expected ${config.videoConfig.width}x${config.videoConfig.height}.`
+    );
+  }
+
+  if (
+    info.duration <
+      config.videoConfig.minDuration ||
+    info.duration >
+      config.videoConfig.maxDuration +
+        0.5
+  ) {
+    throw new Error(
+      `Wrong duration: ${info.duration.toFixed(
+        2
+      )}s. Expected ${config.videoConfig.minDuration}-${config.videoConfig.maxDuration}s.`
+    );
+  }
+
+  return info;
 }
 
-async function downloadSceneVisuals(
-  visualScenes,
-  videoNumber
+async function prepareSceneVisuals(
+  visuals,
+  videoId
 ) {
-  const downloadedPaths = [];
+  const videoVisualDir =
+    path.join(
+      VISUAL_DIR,
+      videoId
+    );
+
+  ensureDirectory(
+    videoVisualDir
+  );
+
+  const paths =
+    [];
 
   for (
     let index = 0;
-    index < visualScenes.length;
-    index++
+    index < visuals.length;
+    index += 1
   ) {
-    const scene = visualScenes[index];
+    const visual =
+      visuals[index];
 
-    const visualUrl =
-      scene?.visual?.url;
-
-    if (!visualUrl) {
-      console.warn(
-        `[Orchestrator] Scene ${
-          scene?.sceneNumber || index + 1
+    if (
+      !visual?.url
+    ) {
+      throw new Error(
+        `Scene ${
+          index + 1
         } has no visual URL.`
       );
-
-      continue;
     }
 
-    const outputPath = path.join(
-      VISUAL_DIR,
-      `video_${videoNumber}_scene_${
-        index + 1
-      }.mp4`
-    );
+    const extension =
+      '.mp4';
+
+    const outputPath =
+      path.join(
+        videoVisualDir,
+        `scene-${String(
+          index + 1
+        ).padStart(
+          2,
+          '0'
+        )}${extension}`
+      );
 
     console.log(
       `[Orchestrator] Downloading scene ${
         index + 1
-      }/${visualScenes.length}...`
+      } visual...`
     );
 
-    await downloadFile(
-      visualUrl,
+    await downloadVisual(
+      visual,
       outputPath
     );
 
-    downloadedPaths.push(outputPath);
-  }
-
-  if (downloadedPaths.length === 0) {
-    throw new Error(
-      '[Orchestrator] No scene videos were downloaded.'
+    paths.push(
+      outputPath
     );
   }
 
-  return downloadedPaths;
+  if (
+    paths.length !==
+    visuals.length
+  ) {
+    throw new Error(
+      'Not all scene visuals were downloaded.'
+    );
+  }
+
+  return paths;
+}
+
+async function prepareSceneAudio(
+  scenes,
+  videoId
+) {
+  const videoAudioDir =
+    path.join(
+      AUDIO_DIR,
+      videoId
+    );
+
+  ensureDirectory(
+    videoAudioDir
+  );
+
+  const sceneAudio =
+    await generateSceneVoiceovers(
+      scenes,
+      videoAudioDir,
+      {
+        languageCode:
+          'en'
+      }
+    );
+
+  if (
+    sceneAudio.length !==
+    scenes.length
+  ) {
+    throw new Error(
+      'Not all scene voiceovers were generated.'
+    );
+  }
+
+  return sceneAudio;
+}
+
+function calculateSceneDurations(
+  scenes
+) {
+  return scenes.map(
+    scene => {
+      const duration =
+        Number(
+          scene.duration
+        );
+
+      if (
+        !Number.isFinite(
+          duration
+        ) ||
+        duration <= 0
+      ) {
+        throw new Error(
+          `Invalid duration for scene ${scene.sceneNumber}.`
+        );
+      }
+
+      return duration;
+    }
+  );
+}
+
+function validateStoryCoverage(
+  story
+) {
+  if (
+    !Array.isArray(
+      story.scenes
+    )
+  ) {
+    throw new Error(
+      'Story has no scenes.'
+    );
+  }
+
+  if (
+    story.scenes.length <
+    config.storyConfig.minScenes
+  ) {
+    throw new Error(
+      `Story contains only ${story.scenes.length} scenes. Minimum is ${config.storyConfig.minScenes}.`
+    );
+  }
+
+  for (
+    let index = 0;
+    index < story.scenes.length;
+    index += 1
+  ) {
+    const scene =
+      story.scenes[index];
+
+    if (
+      !scene.narration
+    ) {
+      throw new Error(
+        `Scene ${
+          index + 1
+        } has no narration.`
+      );
+    }
+
+    if (
+      !scene.visualPrompt
+    ) {
+      throw new Error(
+        `Scene ${
+          index + 1
+        } has no visual prompt.`
+      );
+    }
+
+    if (
+      !scene.action
+    ) {
+      throw new Error(
+        `Scene ${
+          index + 1
+        } has no action.`
+      );
+    }
+  }
 }
 
 async function generateOneVideo(
   topic,
-  videoNumber,
-  options = {}
+  index
 ) {
-  console.log('');
-  console.log(
-    '======================================'
-  );
-  console.log(
-    `[Orchestrator] GENERATING VIDEO ${videoNumber}`
-  );
-  console.log(
-    '======================================'
-  );
-
-  console.log(
-    `[Orchestrator] Topic: ${topic}`
-  );
-
-  console.log(
-    '[Orchestrator] Step 1/4 - Generating script...'
-  );
-
-  const script = await generateScript(
-    topic,
-    {
-      variation: videoNumber,
-      userScript: options.userScript || ''
-    }
-  );
-
-  if (!script?.narration) {
-    throw new Error(
-      '[Orchestrator] Script engine returned no narration.'
+  const videoNumber =
+    String(index + 1).padStart(
+      2,
+      '0'
     );
-  }
 
   console.log(
-    `[Orchestrator] Script ready: ${script.narration.length} characters`
+    ''
   );
 
   console.log(
-    '[Orchestrator] Step 2/4 - Finding visuals...'
+    '========================================'
   );
 
-  const visualScenes =
+  console.log(
+    `Creating video ${videoNumber}`
+  );
+
+  console.log(
+    '========================================'
+  );
+
+  const story =
+    await generateScript(
+      topic,
+      {
+        category:
+          process.env.VIDEO_CATEGORY ||
+          'Life Lesson',
+
+        region:
+          process.env.TREND_REGION ||
+          'US, UK, Europe'
+      }
+    );
+
+  validateStoryCoverage(
+    story
+  );
+
+  const videoId =
+    `${videoNumber}-${cleanName(
+      story.title
+    )}`;
+
+  console.log(
+    `[Orchestrator] Story: ${story.title}`
+  );
+
+  console.log(
+    `[Orchestrator] Scenes: ${story.scenes.length}`
+  );
+
+  console.log(
+    `[Orchestrator] Estimated duration: ${story.duration}s`
+  );
+
+  const visuals =
     await buildSceneVisuals(
-      script.scenes,
-      topic
+      story.scenes,
+      story
     );
 
   if (
-    !Array.isArray(visualScenes) ||
-    visualScenes.length === 0
+    visuals.length !==
+    story.scenes.length
   ) {
     throw new Error(
-      '[Orchestrator] No usable visuals were found.'
+      'Visual coverage is incomplete.'
     );
   }
 
-  const sceneVideoPaths =
-    await downloadSceneVisuals(
-      visualScenes,
-      videoNumber
+  const visualPaths =
+    await prepareSceneVisuals(
+      visuals,
+      videoId
     );
 
-  console.log(
-    `[Orchestrator] ${sceneVideoPaths.length} scene videos ready.`
-  );
+  const sceneAudio =
+    await prepareSceneAudio(
+      story.scenes,
+      videoId
+    );
 
-  console.log(
-    '[Orchestrator] Step 3/4 - Generating voiceover...'
-  );
+  const sceneAudioPaths =
+    sceneAudio.map(
+      item =>
+        item.audioPath
+    );
 
-  const audioPath = path.join(
-    AUDIO_DIR,
-    `video_${videoNumber}.mp3`
-  );
+  const sceneDurations =
+    calculateSceneDurations(
+      story.scenes
+    );
 
-  await generateVoiceover(
-    script.narration,
-    audioPath,
-    {
-      language: 'en'
-    }
-  );
+  const totalSceneDuration =
+    sceneDurations.reduce(
+      (
+        total,
+        duration
+      ) =>
+        total +
+        duration,
+      0
+    );
 
-  if (!fs.existsSync(audioPath)) {
+  if (
+    totalSceneDuration <
+      config.videoConfig.minDuration ||
+    totalSceneDuration >
+      config.videoConfig.maxDuration
+  ) {
     throw new Error(
-      '[Orchestrator] Voiceover file was not created.'
+      `Scene durations total ${totalSceneDuration.toFixed(
+        2
+      )}s, outside allowed ${config.videoConfig.minDuration}-${config.videoConfig.maxDuration}s range.`
     );
   }
 
-  console.log(
-    '[Orchestrator] Voiceover ready.'
+  const finalPath =
+    path.join(
+      FINAL_DIR,
+      `${videoId}.mp4`
+    );
+
+  ensureDirectory(
+    FINAL_DIR
   );
 
   console.log(
-    '[Orchestrator] Step 4/4 - Rendering final MP4...'
-  );
-
-  const finalPath = path.join(
-    FINAL_DIR,
-    `short_${videoNumber}_${Date.now()}.mp4`
+    '[Orchestrator] Rendering final video...'
   );
 
   await renderFinalVideo(
-    audioPath,
-    sceneVideoPaths,
-    finalPath
+    visualPaths,
+    sceneAudioPaths[0],
+    finalPath,
+    {
+      sceneDurations,
+      sceneAudioPaths
+    }
   );
 
-  await validateFinalVideo(
-    finalPath
+  const finalInfo =
+    await validateFinalVideo(
+      finalPath
+    );
+
+  const metadataPath =
+    path.join(
+      FINAL_DIR,
+      `${videoId}.json`
+    );
+
+  fs.writeFileSync(
+    metadataPath,
+    JSON.stringify(
+      {
+        title:
+          story.title,
+
+        category:
+          story.category,
+
+        audience:
+          story.audience,
+
+        hook:
+          story.hook,
+
+        character:
+          story.character,
+
+        goal:
+          story.goal,
+
+        conflict:
+          story.conflict,
+
+        setback:
+          story.setback,
+
+        turningPoint:
+          story.turningPoint,
+
+        resolution:
+          story.resolution,
+
+        ending:
+          story.ending,
+
+        lesson:
+          story.lesson,
+
+        narration:
+          story.narration,
+
+        duration:
+          finalInfo.duration,
+
+        resolution:
+          `${finalInfo.width}x${finalInfo.height}`,
+
+        fps:
+          config.videoConfig
+            .fps,
+
+        scenes:
+          story.scenes,
+
+        visuals,
+
+        audio:
+          sceneAudio,
+
+        generatedBy:
+          story.generatedBy,
+
+        model:
+          story.model,
+
+        youtubeUpload:
+          false,
+
+        readyForManualUpload:
+          true
+      },
+      null,
+      2
+    ),
+    'utf8'
   );
 
   console.log(
-    `[Orchestrator] VIDEO ${videoNumber} COMPLETE: ${finalPath}`
+    ''
+  );
+
+  console.log(
+    '✅ VIDEO READY'
+  );
+
+  console.log(
+    `MP4: ${finalPath}`
+  );
+
+  console.log(
+    `Metadata: ${metadataPath}`
+  );
+
+  console.log(
+    `Duration: ${finalInfo.duration.toFixed(
+      2
+    )}s`
+  );
+
+  console.log(
+    `Resolution: ${finalInfo.width}x${finalInfo.height}`
+  );
+
+  console.log(
+    'YouTube upload: MANUAL'
   );
 
   return {
-    videoNumber,
-    topic,
-    title: script.title,
-    durationEstimate:
-      script.durationEstimate,
-    outputPath: finalPath,
-    scenes:
-      visualScenes.length
+    finalPath,
+    metadataPath,
+    story,
+    visuals,
+    sceneAudio,
+    finalInfo
   };
 }
 
 async function main() {
-  ensureDirectories();
-
   const {
     topic,
     count
-  } = parseArguments();
+  } =
+    parseArguments();
 
-  const userScript = cleanText(
-    process.env.VIDEO_SCRIPT ||
-    process.env.SCRIPT ||
-    ''
+  ensureDirectory(
+    OUTPUT_DIR
   );
 
-  if (!topic && !userScript) {
-    console.error(
-      '[Orchestrator] Topic or VIDEO_SCRIPT is required.'
-    );
+  ensureDirectory(
+    VISUAL_DIR
+  );
 
-    process.exitCode = 1;
+  ensureDirectory(
+    AUDIO_DIR
+  );
 
-    return;
-  }
-
-  const generationTopic =
-    topic || 'Motivational Story';
-
-  console.log(
-    '======================================'
+  ensureDirectory(
+    FINAL_DIR
   );
 
   console.log(
-    'ZEESHAN AI LABS - AI VIDEO GENERATOR'
+    '========================================'
   );
 
   console.log(
-    '======================================'
+    'ZEESHAN AI LABS'
   );
 
   console.log(
-    `[Orchestrator] Topic: ${generationTopic}`
+    'Professional Shorts Generator'
   );
 
   console.log(
-    `[Orchestrator] Videos requested: ${count}`
+    '========================================'
   );
 
   console.log(
-    `[Orchestrator] Output directory: ${OUTPUT_DIR}`
+    `Videos requested: ${count}`
   );
 
-  const results = [];
+  console.log(
+    `Topic: ${
+      topic || 'AI selected story'
+    }`
+  );
+
+  console.log(
+    'YouTube automatic upload: DISABLED'
+  );
+
+  const results =
+    [];
 
   for (
-    let videoNumber = 1;
-    videoNumber <= count;
-    videoNumber++
+    let index = 0;
+    index < count;
+    index += 1
   ) {
     try {
       const result =
         await generateOneVideo(
-          generationTopic,
-          videoNumber,
-          {
-            userScript
-          }
+          topic,
+          index
         );
 
-      results.push(result);
+      results.push(
+        result
+      );
     } catch (error) {
-      console.error('');
       console.error(
-        `[Orchestrator] VIDEO ${videoNumber} FAILED`
+        ''
       );
 
       console.error(
-        error?.stack ||
+        `❌ Video ${
+          index + 1
+        } failed:`,
         error?.message ||
-        error
+          error
       );
     }
   }
 
-  console.log('');
   console.log(
-    '======================================'
+    ''
   );
 
   console.log(
-    `[Orchestrator] Completed: ${results.length}/${count}`
+    '========================================'
   );
 
   console.log(
-    '======================================'
+    `Completed: ${results.length}/${count}`
   );
 
-  for (const result of results) {
-    console.log(
-      `[Orchestrator] MP4: ${result.outputPath}`
+  console.log(
+    '========================================'
+  );
+
+  if (
+    results.length ===
+    0
+  ) {
+    throw new Error(
+      'No videos were successfully generated.'
     );
   }
 
-  if (results.length === 0) {
-    console.error(
-      '[Orchestrator] No videos were generated.'
-    );
-
-    process.exitCode = 1;
-
-    return;
-  }
+  console.log(
+    'Ready-for-upload MP4 files are in:'
+  );
 
   console.log(
-    '[Orchestrator] Generation finished successfully.'
+    FINAL_DIR
   );
 }
 
-main().catch(error => {
-  console.error(
-    '[Orchestrator] Fatal error:',
-    error?.stack ||
-    error?.message ||
-    error
-  );
+main().catch(
+  error => {
+    console.error(
+      ''
+    );
 
-  process.exitCode = 1;
-});
+    console.error(
+      '❌ ORCHESTRATOR FAILED'
+    );
+
+    console.error(
+      error?.message ||
+        error
+    );
+
+    process.exit(
+      1
+    );
+  }
+);
