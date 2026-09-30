@@ -164,4 +164,62 @@ function cleanFileName(value) {
 
 function assertFile(
   filePath,
- 
+  label
+) {
+  if (
+    !fs.existsSync(
+      filePath
+    )
+  ) {
+    throw new Error(
+      `${label} missing: ${filePath}`
+    );
+  }
+
+  const stats =
+    fs.statSync(
+      filePath
+    );
+
+  if (
+    !stats.isFile() ||
+    stats.size === 0
+  ) {
+    throw new Error(
+      `${label} is empty or invalid: ${filePath}`
+    );
+  }
+
+  return stats.size;
+}
+
+// ---------------------------------------------------------
+// REAL MEDIA DURATION
+// ---------------------------------------------------------
+
+async function getFileDuration(
+  filePath
+) {
+  assertFile(
+    filePath,
+    'Media file'
+  );
+
+  const {
+    stdout
+  } =
+    await execFileAsync(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
+        filePath
+      ]
+    );
+
+  const duration =
+    Number.parse
