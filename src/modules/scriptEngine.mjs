@@ -4,7 +4,7 @@ import { config } from '../config/index.mjs';
 
 const MODEL =
   process.env.GEMINI_MODEL ||
-  'gemini-2.5-flash';
+  'gemini-3.8-flash';
 
 function cleanText(value) {
   return String(value || '')
@@ -19,44 +19,105 @@ function clamp(value, min, max) {
   );
 }
 
-function estimateDuration(narration) {
-  const words = cleanText(narration)
-    .split(/\s+/)
-    .filter(Boolean)
-    .length;
-
-  const minutes =
-    words /
-    config.storyConfig.targetWordsPerMinute;
-
-  const seconds =
-    Math.ceil(minutes * 60);
-
-  return clamp(
-    seconds,
-    config.videoConfig.minDuration,
-    config.videoConfig.maxDuration
+function getStoryConfig() {
+  return (
+    config?.storyConfig || {
+      targetWordsPerMinute: 150,
+      minScenes: 6,
+      maxScenes: 10
+    }
   );
 }
 
-function estimateSceneDuration(narration) {
-  const words = cleanText(narration)
+function getVideoConfig() {
+  return (
+    config?.videoConfig || {
+      minDuration: 20,
+      maxDuration: 59
+    }
+  );
+}
+
+function getTargetWordsPerMinute() {
+  const storyConfig =
+    getStoryConfig();
+
+  const value =
+    Number(
+      storyConfig?.targetWordsPerMinute
+    );
+
+  return Number.isFinite(value) &&
+    value > 0
+    ? value
+    : 150;
+}
+
+function estimateDuration(
+  narration
+) {
+  const words = cleanText(
+    narration
+  )
     .split(/\s+/)
     .filter(Boolean)
     .length;
 
   if (words === 0) {
-    return 5;
+    return getVideoConfig()
+      .minDuration || 20;
   }
 
-  const seconds = Math.ceil(
-    (words /
-      config.storyConfig.targetWordsPerMinute) *
-      60
-  );
+  const minutes =
+    words /
+    getTargetWordsPerMinute();
+
+  const seconds =
+    Math.ceil(
+      minutes * 60
+    );
+
+  const videoConfig =
+    getVideoConfig();
 
   return clamp(
     seconds,
+    Number(
+      videoConfig.minDuration
+    ) || 20,
+    Number(
+      videoConfig.maxDuration
+    ) || 59
+  );
+}
+
+function estimateSceneDuration(
+  narration
+) {
+  const text =
+    cleanText(
+      narration
+    );
+
+  if (!text) {
+    return 5;
+  }
+
+  const words =
+    text
+      .split(/\s+/)
+      .filter(Boolean)
+      .length;
+
+  const duration =
+    Math.ceil(
+      (words /
+        getTargetWordsPerMinute()) *
+        60
+    );
+
+  return clamp(
+    duration,
     2,
     12
   );
@@ -66,13 +127,24 @@ function extractJson(text) {
   const cleaned =
     String(text || '')
       .trim()
-      .replace(/^```json/i, '')
-      .replace(/^```/i, '')
-      .replace(/```$/i, '')
+      .replace(
+        /^```json/i,
+        ''
+      )
+      .replace(
+        /^```/i,
+        ''
+      )
+      .replace(
+        /```$/i,
+        ''
+      )
       .trim();
 
   try {
-    return JSON.parse(cleaned);
+    return JSON.parse(
+      cleaned
+    );
   } catch {
     const firstBrace =
       cleaned.indexOf('{');
@@ -105,7 +177,10 @@ function extractJson(text) {
   }
 }
 
-function normalizeScene(scene, index) {
+function normalizeScene(
+  scene,
+  index
+) {
   const narration =
     cleanText(
       scene?.narration ||
@@ -123,11 +198,8 @@ function normalizeScene(scene, index) {
     );
 
   const suppliedDuration =
-    Number(scene?.duration);
-
-  const calculatedDuration =
-    estimateSceneDuration(
-      narration
+    Number(
+      scene?.duration
     );
 
   return {
@@ -148,7 +220,9 @@ function normalizeScene(scene, index) {
             2,
             12
           )
-        : calculatedDuration,
+        : estimateSceneDuration(
+            narration
+          ),
 
     character:
       cleanText(
@@ -172,7 +246,9 @@ function normalizeScene(scene, index) {
   };
 }
 
-function normalizeStory(raw) {
+function normalizeStory(
+  raw
+) {
   const story =
     raw || {};
 
@@ -201,11 +277,6 @@ function normalizeStory(raw) {
     cleanText(
       story.narration ||
       sceneNarration
-    );
-
-  const duration =
-    estimateDuration(
-      narration
     );
 
   return {
@@ -271,13 +342,21 @@ function normalizeStory(raw) {
 
     narration,
 
-    duration,
+    duration:
+      estimateDuration(
+        narration
+      ),
 
     scenes
   };
 }
 
-function validateStory(story) {
+function validateStory(
+  story
+) {
+  const storyConfig =
+    getStoryConfig();
+
   const requiredFields = [
     'title',
     'hook',
@@ -319,21 +398,31 @@ function validateStory(story) {
     );
   }
 
+  const minScenes =
+    Number(
+      storyConfig.minScenes
+    ) || 6;
+
+  const maxScenes =
+    Number(
+      storyConfig.maxScenes
+    ) || 10;
+
   if (
     story.scenes.length <
-    config.storyConfig.minScenes
+    minScenes
   ) {
     throw new Error(
-      `[ScriptEngine] Story needs at least ${config.storyConfig.minScenes} scenes.`
+      `[ScriptEngine] Story needs at least ${minScenes} scenes.`
     );
   }
 
   if (
     story.scenes.length >
-    config.storyConfig.maxScenes
+    maxScenes
   ) {
     throw new Error(
-      `[ScriptEngine] Story has too many scenes. Maximum is ${config.storyConfig.maxScenes}.`
+      `[ScriptEngine] Story has too many scenes. Maximum is ${maxScenes}.`
     );
   }
 
@@ -347,9 +436,9 @@ function validateStory(story) {
       .join(' ');
 
   if (
-    cleanText(
+    !cleanText(
       totalSceneNarration
-    ).length === 0
+    )
   ) {
     throw new Error(
       '[ScriptEngine] All scene narration is empty.'
@@ -422,7 +511,9 @@ function validateStory(story) {
   return true;
 }
 
-function createFallbackStory(topic) {
+function createFallbackStory(
+  topic
+) {
   const subject =
     cleanText(topic) ||
     'Never Give Up';
@@ -585,7 +676,10 @@ function createFallbackStory(topic) {
   });
 }
 
-function buildPrompt(topic, options) {
+function buildPrompt(
+  topic,
+  options
+) {
   const requestedCategory =
     cleanText(
       options.category
@@ -620,16 +714,16 @@ IMPORTANT:
 - Do NOT imitate a known creator.
 - Do NOT create generic disconnected motivational quotes.
 - The video must feel like ONE complete mini-film.
-- The events must logically cause the next events.
+- Events must logically cause the next events.
 - The ending must resolve the central problem.
-- Every scene must visually represent what its narration says.
+- Every scene must visually represent its narration.
 - Keep the same main character across every scene.
-- Keep the same important environment/location unless the story explicitly changes it.
+- Keep important environment/location details consistent.
 - Do not introduce unexplained characters or objects.
 - Use realistic, filmable visual descriptions.
 - Avoid impossible or contradictory actions.
 - Avoid unnecessary dialogue.
-- Narration must be complete and tell the entire story.
+- Narration must tell the COMPLETE story.
 
 STORY STRUCTURE:
 1. Hook
@@ -660,14 +754,14 @@ Each scene MUST contain:
 The narration of all scenes together must tell the COMPLETE story.
 
 SCENE TIMING:
-Duration must approximately match the amount of narration in that scene.
+Duration should approximately match the narration length.
 Do not give every scene the same arbitrary duration.
 
 VISUAL CONTINUITY:
-Every scene must repeat the important character identity:
-age range, hair, clothing, physical appearance and other persistent details.
+Repeat the important character identity in every scene:
+age range, hair, clothing, physical appearance and persistent details.
 
-Every scene must repeat important environment details when the location remains the same.
+Repeat important environment details when the location remains the same.
 
 OUTPUT:
 Return ONLY valid JSON.
@@ -709,7 +803,9 @@ async function generateWithGemini(
   options
 ) {
   if (
-    !config.geminiApiKey
+    !cleanText(
+      config?.geminiApiKey
+    )
   ) {
     throw new Error(
       '[ScriptEngine] GEMINI_API_KEY is missing.'
@@ -825,7 +921,7 @@ export async function generateScript(
     );
 
     console.warn(
-      '[ScriptEngine] Rebuilding and validating structured fallback story.'
+      '[ScriptEngine] Rebuilding structured fallback story.'
     );
 
     const fallback =
@@ -850,6 +946,14 @@ export async function generateScript(
 
   console.log(
     `[ScriptEngine] Generator: ${generatedBy}`
+  );
+
+  console.log(
+    `[ScriptEngine] Model: ${
+      generatedBy === 'gemini'
+        ? MODEL
+        : 'local-fallback'
+    }`
   );
 
   console.log(
