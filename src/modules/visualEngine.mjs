@@ -1,7 +1,11 @@
+import fs from 'fs';
+import path from 'path';
 import axios from 'axios';
+
 import { config } from '../config/index.mjs';
 
-const PEXELS_API_URL = 'https://api.pexels.com/videos/search';
+const PEXELS_API_URL =
+  'https://api.pexels.com/videos/search';
 
 function cleanText(value) {
   return String(value || '')
@@ -9,262 +13,529 @@ function cleanText(value) {
     .trim();
 }
 
-function getVideoFiles(video) {
-  return Array.isArray(video?.video_files)
-    ? video.video_files.filter(file => file?.link)
-    : [];
+function ensureDirectory(directory) {
+  if (!fs.existsSync(directory)) {
+    fs.mkdirSync(directory, {
+      recursive: true
+    });
+  }
 }
 
-function scoreVideo(video) {
-  const files = getVideoFiles(video);
+function buildContinuityPrompt(
+  scene,
+  story,
+  index
+) {
+  const character =
+    cleanText(
+      scene?.character ||
+      story?.character
+    );
 
-  if (!files.length) return -1;
+  const environment =
+    cleanText(
+      scene?.environment
+    );
 
-  const portraitFiles = files.filter(file => {
-    const width = Number(file.width || 0);
-    const height = Number(file.height || 0);
+  const action =
+    cleanText(
+      scene?.action
+    );
 
-    return height > width;
-  });
+  const emotion =
+    cleanText(
+      scene?.emotion
+    );
 
-  const candidates =
-    portraitFiles.length > 0 ? portraitFiles : files;
+  const originalPrompt =
+    cleanText(
+      scene?.visualPrompt
+    );
 
-  const scored = candidates.map(file => {
-    const width = Number(file.width || 0);
-    const height = Number(file.height || 0);
-
-    let score = 0;
-
-    // Prefer portrait footage.
-    if (height > width) score += 100;
-
-    // Prefer reasonable vertical resolution.
-    if (height >= 1280) score += 40;
-    if (height >= 1920) score += 30;
-
-    // Prefer 720p+ width.
-    if (width >= 720) score += 20;
-    if (width >= 1080) score += 20;
-
-    // Avoid extremely tiny files.
-    if (width < 480 || height < 640) {
-      score -= 50;
-    }
-
-    // Prefer mp4.
-    if (
-      String(file.file_type || '').toLowerCase()
-        .includes('mp4')
-    ) {
-      score += 10;
-    }
-
-    return {
-      file,
-      score
-    };
-  });
-
-  scored.sort((a, b) => b.score - a.score);
-
-  return scored[0]?.score || 0;
+  return [
+    'Vertical cinematic story scene.',
+    `Scene ${index + 1}.`,
+    `Main character: ${character}.`,
+    `Environment: ${environment}.`,
+    `Action: ${action}.`,
+    `Emotion: ${emotion}.`,
+    `Story visual direction: ${originalPrompt}.`,
+    'Keep the main character visually consistent with previous scenes.',
+    'Keep important clothing, hair, age and physical appearance consistent.',
+    'Keep the environment consistent unless the story explicitly changes location.',
+    'Show the exact action described by this scene.',
+    'Realistic cinematic photography.',
+    'Natural lighting.',
+    'Professional short-film composition.',
+    'Vertical 9:16 framing.',
+    'No text overlays.',
+    'No logos.',
+    'No watermark.'
+  ].join(' ');
 }
 
-function selectBestFile(video) {
-  const files = getVideoFiles(video);
+function buildSearchQuery(
+  scene
+) {
+  const action =
+    cleanText(
+      scene?.action
+    );
 
-  if (!files.length) {
-    return null;
+  const environment =
+    cleanText(
+      scene?.environment
+    );
+
+  const emotion =
+    cleanText(
+      scene?.emotion
+    );
+
+  const query = [
+    action,
+    environment,
+    emotion,
+    'cinematic',
+    'realistic'
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return query
+    .replace(/[^\w\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 180);
+}
+
+function scoreVideoFile(
+  file
+) {
+  const width =
+    Number(file?.width || 0);
+
+  const height =
+    Number(file?.height || 0);
+
+  const isVertical =
+    height >= width;
+
+  const resolution =
+    width * height;
+
+  let score = 0;
+
+  if (isVertical) {
+    score += 100;
   }
 
-  const scored = files.map(file => {
-    const width = Number(file.width || 0);
-    const height = Number(file.height || 0);
-
-    let score = 0;
-
-    if (height > width) score += 100;
-    if (height >= 1920) score += 40;
-    else if (height >= 1280) score += 25;
-
-    if (width >= 1080) score += 30;
-    else if (width >= 720) score += 20;
-
-    if (
-      String(file.file_type || '')
-        .toLowerCase()
-        .includes('mp4')
-    ) {
-      score += 10;
-    }
-
-    return {
-      file,
-      score
-    };
-  });
-
-  scored.sort((a, b) => b.score - a.score);
-
-  return scored[0]?.file || null;
-}
-
-function buildSearchQuery(scene, topic) {
-  const prompt = cleanText(scene?.visualPrompt);
-
-  if (prompt) {
-    // Remove words that are less useful for stock-video search.
-    return prompt
-      .replace(
-        /\b(cinematic|ultra|high quality|4k|8k|vertical|9:16|realistic)\b/gi,
-        ''
-      )
-      .replace(/\s+/g, ' ')
-      .trim();
+  if (width >= 1080) {
+    score += 50;
   }
 
-  const narration = cleanText(scene?.narration);
-
-  if (narration) {
-    return narration.slice(0, 100);
+  if (height >= 1920) {
+    score += 50;
   }
 
-  return cleanText(topic);
+  if (
+    String(file?.file_type)
+      .toLowerCase() === 'video/mp4'
+  ) {
+    score += 25;
+  }
+
+  score += Math.min(
+    resolution / 100000,
+    50
+  );
+
+  return score;
 }
 
-async function searchPexels(query, perPage = 8) {
+async function searchPexelsVideos(
+  query
+) {
   if (!config.pexelsApiKey) {
     throw new Error(
       '[VisualEngine] PEXELS_API_KEY is missing.'
     );
   }
 
-  const response = await axios.get(
-    PEXELS_API_URL,
-    {
-      params: {
-        query,
-        per_page: perPage,
-        orientation: 'portrait'
-      },
-      headers: {
-        Authorization: config.pexelsApiKey
-      },
-      timeout: 15000
-    }
-  );
+  const response =
+    await axios.get(
+      PEXELS_API_URL,
+      {
+        headers: {
+          Authorization:
+            config.pexelsApiKey
+        },
 
-  return response?.data?.videos || [];
-}
+        params: {
+          query,
+          orientation:
+            'portrait',
+          size:
+            'large',
+          per_page:
+            10
+        },
 
-export async function fetchStockVideos(query) {
-  const cleanQuery = cleanText(query);
+        timeout:
+          30000
+      }
+    );
 
-  if (!cleanQuery) {
+  const videos =
+    Array.isArray(
+      response?.data?.videos
+    )
+      ? response.data.videos
+      : [];
+
+  if (
+    videos.length === 0
+  ) {
     return [];
   }
 
-  console.log(
-    `[VisualEngine] Searching Pexels: ${cleanQuery}`
-  );
+  return videos
+    .map(video => {
+      const files =
+        Array.isArray(
+          video?.video_files
+        )
+          ? video.video_files
+          : [];
 
-  try {
-    const videos = await searchPexels(cleanQuery, 8);
+      const sortedFiles =
+        files
+          .filter(file =>
+            String(
+              file?.file_type || ''
+            )
+              .toLowerCase()
+              .includes('mp4')
+          )
+          .sort(
+            (a, b) =>
+              scoreVideoFile(b) -
+              scoreVideoFile(a)
+          );
 
-    return videos;
-  } catch (error) {
-    console.error(
-      '[VisualEngine] Pexels API Error:',
-      error.response?.data || error.message
+      const bestFile =
+        sortedFiles[0];
+
+      if (!bestFile?.link) {
+        return null;
+      }
+
+      return {
+        id:
+          video.id,
+
+        url:
+          bestFile.link,
+
+        width:
+          bestFile.width,
+
+        height:
+          bestFile.height,
+
+        duration:
+          video.duration,
+
+        source:
+          'pexels',
+
+        photographer:
+          video.user?.name ||
+          '',
+
+        searchQuery:
+          query
+      };
+    })
+    .filter(Boolean);
+}
+
+function validateSceneVisual(
+  scene,
+  index
+) {
+  if (!scene) {
+    throw new Error(
+      `[VisualEngine] Scene ${index + 1} is missing.`
     );
+  }
 
-    return [];
+  if (
+    !cleanText(
+      scene.visualPrompt
+    )
+  ) {
+    throw new Error(
+      `[VisualEngine] Scene ${index + 1} has no visual prompt.`
+    );
+  }
+
+  if (
+    !cleanText(
+      scene.action
+    )
+  ) {
+    throw new Error(
+      `[VisualEngine] Scene ${index + 1} has no action description.`
+    );
+  }
+
+  if (
+    !cleanText(
+      scene.character
+    )
+  ) {
+    throw new Error(
+      `[VisualEngine] Scene ${index + 1} has no character continuity data.`
+    );
+  }
+
+  if (
+    !cleanText(
+      scene.environment
+    )
+  ) {
+    throw new Error(
+      `[VisualEngine] Scene ${index + 1} has no environment continuity data.`
+    );
   }
 }
 
-export async function findVisualForScene(scene, topic) {
-  const query = buildSearchQuery(scene, topic);
-
-  console.log(
-    `[VisualEngine] Scene ${scene?.sceneNumber || '?'} query: ${query}`
+export async function findVisualForScene(
+  scene,
+  story = {},
+  index = 0
+) {
+  validateSceneVisual(
+    scene,
+    index
   );
 
-  const videos = await fetchStockVideos(query);
-
-  if (!videos.length) {
-    console.warn(
-      `[VisualEngine] No footage found for: ${query}`
+  const continuityPrompt =
+    buildContinuityPrompt(
+      scene,
+      story,
+      index
     );
 
-    return null;
+  const searchQuery =
+    buildSearchQuery(
+      scene
+    );
+
+  console.log(
+    `[VisualEngine] Scene ${
+      index + 1
+    } visual direction: ${continuityPrompt}`
+  );
+
+  console.log(
+    `[VisualEngine] Searching visual for scene ${
+      index + 1
+    }: ${searchQuery}`
+  );
+
+  const results =
+    await searchPexelsVideos(
+      searchQuery
+    );
+
+  if (
+    results.length === 0
+  ) {
+    throw new Error(
+      `[VisualEngine] No visual found for scene ${
+        index + 1
+      }.`
+    );
   }
 
-  const ranked = videos
-    .map(video => ({
-      video,
-      score: scoreVideo(video)
-    }))
-    .filter(item => item.score >= 0)
-    .sort((a, b) => b.score - a.score);
-
-  const best = ranked[0]?.video;
-
-  if (!best) {
-    return null;
-  }
-
-  const file = selectBestFile(best);
-
-  if (!file?.link) {
-    return null;
-  }
+  const selected =
+    results[0];
 
   return {
-    sceneNumber: scene?.sceneNumber || 1,
-    query,
-    videoId: best.id,
-    duration: Number(best.duration || 0),
-    width: Number(file.width || 0),
-    height: Number(file.height || 0),
-    url: file.link,
-    photographer: best.user?.name || '',
-    source: 'Pexels'
+    ...selected,
+
+    sceneNumber:
+      index + 1,
+
+    visualPrompt:
+      scene.visualPrompt,
+
+    continuityPrompt,
+
+    character:
+      scene.character,
+
+    environment:
+      scene.environment,
+
+    action:
+      scene.action,
+
+    emotion:
+      scene.emotion,
+
+    narration:
+      scene.narration,
+
+    plannedDuration:
+      Number(
+        scene.duration || 5
+      )
   };
 }
 
-export async function buildSceneVisuals(scenes, topic) {
-  if (!Array.isArray(scenes) || scenes.length === 0) {
+export async function buildSceneVisuals(
+  scenes,
+  story = {}
+) {
+  if (
+    !Array.isArray(scenes) ||
+    scenes.length === 0
+  ) {
     throw new Error(
-      '[VisualEngine] No scenes were provided.'
+      '[VisualEngine] No scenes provided.'
     );
   }
 
-  const results = [];
+  const visuals = [];
 
-  for (const scene of scenes) {
-    const visual = await findVisualForScene(
+  for (
+    let index = 0;
+    index < scenes.length;
+    index += 1
+  ) {
+    const scene =
+      scenes[index];
+
+    validateSceneVisual(
       scene,
-      topic
+      index
     );
 
-    if (visual) {
-      results.push({
-        ...scene,
-        visual
-      });
-    } else {
-      console.warn(
-        `[VisualEngine] Scene ${scene.sceneNumber} has no matching footage.`
+    const visual =
+      await findVisualForScene(
+        scene,
+        story,
+        index
+      );
+
+    if (!visual?.url) {
+      throw new Error(
+        `[VisualEngine] Scene ${
+          index + 1
+        } visual URL is missing.`
       );
     }
-  }
 
-  if (results.length === 0) {
-    throw new Error(
-      '[VisualEngine] No usable visual footage found for any scene.'
+    visuals.push(
+      visual
     );
   }
 
-  return results;
+  if (
+    visuals.length !==
+    scenes.length
+  ) {
+    throw new Error(
+      `[VisualEngine] Visual coverage failed. Scenes: ${scenes.length}, visuals: ${visuals.length}.`
+    );
+  }
+
+  return visuals;
 }
+
+export async function downloadVisual(
+  visual,
+  outputPath
+) {
+  if (!visual?.url) {
+    throw new Error(
+      '[VisualEngine] Visual URL is missing.'
+    );
+  }
+
+  if (!outputPath) {
+    throw new Error(
+      '[VisualEngine] outputPath is required.'
+    );
+  }
+
+  const directory =
+    path.dirname(
+      path.resolve(
+        outputPath
+      )
+    );
+
+  ensureDirectory(
+    directory
+  );
+
+  const response =
+    await axios.get(
+      visual.url,
+      {
+        responseType:
+          'stream',
+
+        timeout:
+          60000
+      }
+    );
+
+  await new Promise(
+    (resolve, reject) => {
+      const writer =
+        fs.createWriteStream(
+          outputPath
+        );
+
+      response.data.pipe(
+        writer
+      );
+
+      writer.on(
+        'finish',
+        resolve
+      );
+
+      writer.on(
+        'error',
+        reject
+      );
+    }
+  );
+
+  const stats =
+    fs.statSync(
+      outputPath
+    );
+
+  if (
+    stats.size < 50 * 1024
+  ) {
+    throw new Error(
+      `[VisualEngine] Downloaded visual is too small: ${outputPath}`
+    );
+  }
+
+  return outputPath;
+}
+
+export default {
+  findVisualForScene,
+  buildSceneVisuals,
+  downloadVisual
+};
