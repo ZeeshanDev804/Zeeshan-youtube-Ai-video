@@ -19,20 +19,15 @@ function clamp(value, min, max) {
   );
 }
 
-function estimateDuration(
-  narration
-) {
-  const words = cleanText(
-    narration
-  )
+function estimateDuration(narration) {
+  const words = cleanText(narration)
     .split(/\s+/)
     .filter(Boolean)
     .length;
 
   const minutes =
     words /
-    config.storyConfig
-      .targetWordsPerMinute;
+    config.storyConfig.targetWordsPerMinute;
 
   const seconds =
     Math.ceil(minutes * 60);
@@ -41,6 +36,29 @@ function estimateDuration(
     seconds,
     config.videoConfig.minDuration,
     config.videoConfig.maxDuration
+  );
+}
+
+function estimateSceneDuration(narration) {
+  const words = cleanText(narration)
+    .split(/\s+/)
+    .filter(Boolean)
+    .length;
+
+  if (words === 0) {
+    return 5;
+  }
+
+  const seconds = Math.ceil(
+    (words /
+      config.storyConfig.targetWordsPerMinute) *
+      60
+  );
+
+  return clamp(
+    seconds,
+    2,
+    12
   );
 }
 
@@ -67,12 +85,18 @@ function extractJson(text) {
       lastBrace !== -1 &&
       lastBrace > firstBrace
     ) {
-      return JSON.parse(
-        cleaned.slice(
-          firstBrace,
-          lastBrace + 1
-        )
-      );
+      try {
+        return JSON.parse(
+          cleaned.slice(
+            firstBrace,
+            lastBrace + 1
+          )
+        );
+      } catch {
+        throw new Error(
+          '[ScriptEngine] Gemini returned malformed JSON.'
+        );
+      }
     }
 
     throw new Error(
@@ -81,14 +105,12 @@ function extractJson(text) {
   }
 }
 
-function normalizeScene(
-  scene,
-  index
-) {
+function normalizeScene(scene, index) {
   const narration =
     cleanText(
       scene?.narration ||
       scene?.voiceover ||
+      scene?.voice ||
       ''
     );
 
@@ -96,11 +118,17 @@ function normalizeScene(
     cleanText(
       scene?.visualPrompt ||
       scene?.visual_prompt ||
+      scene?.description ||
       ''
     );
 
-  const duration =
+  const suppliedDuration =
     Number(scene?.duration);
+
+  const calculatedDuration =
+    estimateSceneDuration(
+      narration
+    );
 
   return {
     sceneNumber:
@@ -111,10 +139,16 @@ function normalizeScene(
     visualPrompt,
 
     duration:
-      Number.isFinite(duration) &&
-      duration > 0
-        ? duration
-        : 5,
+      Number.isFinite(
+        suppliedDuration
+      ) &&
+      suppliedDuration > 0
+        ? clamp(
+            suppliedDuration,
+            2,
+            12
+          )
+        : calculatedDuration,
 
     character:
       cleanText(
@@ -138,16 +172,9 @@ function normalizeScene(
   };
 }
 
-function normalizeStory(
-  raw
-) {
+function normalizeStory(raw) {
   const story =
     raw || {};
-
-  const narration =
-    cleanText(
-      story.narration
-    );
 
   const rawScenes =
     Array.isArray(
@@ -159,6 +186,21 @@ function normalizeStory(
   const scenes =
     rawScenes.map(
       normalizeScene
+    );
+
+  const sceneNarration =
+    scenes
+      .map(
+        scene =>
+          scene.narration
+      )
+      .filter(Boolean)
+      .join(' ');
+
+  const narration =
+    cleanText(
+      story.narration ||
+      sceneNarration
     );
 
   const duration =
@@ -235,9 +277,7 @@ function normalizeStory(
   };
 }
 
-function validateStory(
-  story
-) {
+function validateStory(story) {
   const requiredFields = [
     'title',
     'hook',
@@ -297,6 +337,25 @@ function validateStory(
     );
   }
 
+  const totalSceneNarration =
+    story.scenes
+      .map(
+        scene =>
+          scene.narration
+      )
+      .filter(Boolean)
+      .join(' ');
+
+  if (
+    cleanText(
+      totalSceneNarration
+    ).length === 0
+  ) {
+    throw new Error(
+      '[ScriptEngine] All scene narration is empty.'
+    );
+  }
+
   for (
     let index = 0;
     index < story.scenes.length;
@@ -305,19 +364,22 @@ function validateStory(
     const scene =
       story.scenes[index];
 
-    if (!scene.narration) {
+    const sceneNumber =
+      index + 1;
+
+    if (
+      !scene.narration
+    ) {
       throw new Error(
-        `[ScriptEngine] Scene ${
-          index + 1
-        } has no narration.`
+        `[ScriptEngine] Scene ${sceneNumber} has no narration.`
       );
     }
 
-    if (!scene.visualPrompt) {
+    if (
+      !scene.visualPrompt
+    ) {
       throw new Error(
-        `[ScriptEngine] Scene ${
-          index + 1
-        } has no visual prompt.`
+        `[ScriptEngine] Scene ${sceneNumber} has no visual prompt.`
       );
     }
 
@@ -325,9 +387,7 @@ function validateStory(
       !scene.character
     ) {
       throw new Error(
-        `[ScriptEngine] Scene ${
-          index + 1
-        } has no character continuity data.`
+        `[ScriptEngine] Scene ${sceneNumber} has no character continuity data.`
       );
     }
 
@@ -335,9 +395,7 @@ function validateStory(
       !scene.environment
     ) {
       throw new Error(
-        `[ScriptEngine] Scene ${
-          index + 1
-        } has no environment continuity data.`
+        `[ScriptEngine] Scene ${sceneNumber} has no environment continuity data.`
       );
     }
 
@@ -345,9 +403,18 @@ function validateStory(
       !scene.action
     ) {
       throw new Error(
-        `[ScriptEngine] Scene ${
-          index + 1
-        } has no action.`
+        `[ScriptEngine] Scene ${sceneNumber} has no action.`
+      );
+    }
+
+    if (
+      !Number.isFinite(
+        Number(scene.duration)
+      ) ||
+      Number(scene.duration) <= 0
+    ) {
+      throw new Error(
+        `[ScriptEngine] Scene ${sceneNumber} has invalid duration.`
       );
     }
   }
@@ -355,23 +422,10 @@ function validateStory(
   return true;
 }
 
-function createFallbackStory(
-  topic
-) {
+function createFallbackStory(topic) {
   const subject =
     cleanText(topic) ||
     'Never Give Up';
-
-  const narration =
-    `Everyone thought the story was already over. ` +
-    `A young person named Alex had one simple goal: ` +
-    `to finish a difficult challenge before the day ended. ` +
-    `At first, everything seemed to go wrong. ` +
-    `Then a serious setback made giving up feel easier than continuing. ` +
-    `Alex stopped, looked at the problem again, and noticed one small detail everyone had missed. ` +
-    `That changed the entire plan. ` +
-    `Alex tried one more time, solved the problem step by step, and finally reached the goal. ` +
-    `The lesson was simple: a setback can change your plan without deciding your ending.`;
 
   const baseScenes = [
     {
@@ -386,6 +440,7 @@ function createFallbackStory(
       visualPrompt:
         'Cinematic vertical realistic shot of Alex, a young adult with short dark hair, dark blue jacket and backpack, standing alone on a modern city street at early morning, looking toward a difficult challenge, natural lighting, consistent character appearance, realistic photography'
     },
+
     {
       narration:
         'Alex had one simple goal: to finish the challenge before the day ended.',
@@ -398,6 +453,7 @@ function createFallbackStory(
       visualPrompt:
         'Cinematic vertical realistic shot of the same Alex with short dark hair, dark blue jacket and backpack, checking a simple plan and walking toward the challenge, same city environment and morning lighting, consistent face and clothing, realistic photography'
     },
+
     {
       narration:
         'At first, everything seemed to go wrong.',
@@ -410,6 +466,7 @@ function createFallbackStory(
       visualPrompt:
         'Cinematic vertical realistic shot of the same Alex, same face, dark blue jacket and backpack, discovering that the plan has failed, frustrated expression, same city environment, realistic natural lighting, consistent character'
     },
+
     {
       narration:
         'Then a serious setback made giving up feel easier than continuing.',
@@ -422,6 +479,7 @@ function createFallbackStory(
       visualPrompt:
         'Cinematic vertical realistic shot of the same Alex, same face and clothing, sitting alone near the challenge and thinking about giving up, discouraged expression, consistent environment, realistic cinematic photography'
     },
+
     {
       narration:
         'Alex stopped, looked at the problem again, and noticed one small detail everyone had missed.',
@@ -434,6 +492,7 @@ function createFallbackStory(
       visualPrompt:
         'Cinematic vertical realistic close shot of the same Alex, same face and dark blue jacket, suddenly noticing a small important detail, surprised hopeful expression, studying the problem carefully, same environment, realistic cinematic photography'
     },
+
     {
       narration:
         'That changed the entire plan.',
@@ -446,6 +505,7 @@ function createFallbackStory(
       visualPrompt:
         'Cinematic vertical realistic shot of the same Alex, same face and clothing, confidently following a new plan at the challenge location, determined expression, consistent environment and lighting, realistic cinematic photography'
     },
+
     {
       narration:
         'Alex tried one more time, solved the problem step by step, and finally reached the goal.',
@@ -458,6 +518,7 @@ function createFallbackStory(
       visualPrompt:
         'Cinematic vertical realistic shot of the same Alex, same face and dark blue jacket, successfully completing the challenge and reaching the goal, relieved proud expression, warm natural golden-hour lighting, same environment, realistic cinematic photography'
     },
+
     {
       narration:
         'The lesson was simple: a setback can change your plan without deciding your ending.',
@@ -471,6 +532,14 @@ function createFallbackStory(
         'Cinematic vertical realistic final shot of the same Alex, same face and clothing, calmly walking away after completing the goal, peaceful confident expression, same city street at sunset, natural cinematic lighting, realistic photography'
     }
   ];
+
+  const narration =
+    baseScenes
+      .map(
+        scene =>
+          scene.narration
+      )
+      .join(' ');
 
   return normalizeStory({
     title:
@@ -516,10 +585,7 @@ function createFallbackStory(
   });
 }
 
-function buildPrompt(
-  topic,
-  options
-) {
+function buildPrompt(topic, options) {
   const requestedCategory =
     cleanText(
       options.category
@@ -642,7 +708,9 @@ async function generateWithGemini(
   topic,
   options
 ) {
-  if (!config.geminiApiKey) {
+  if (
+    !config.geminiApiKey
+  ) {
     throw new Error(
       '[ScriptEngine] GEMINI_API_KEY is missing.'
     );
@@ -669,17 +737,24 @@ async function generateWithGemini(
   const text =
     response?.text ||
     response?.candidates?.[0]?.content?.parts
-      ?.map(part => part.text || '')
+      ?.map(
+        part =>
+          part.text || ''
+      )
       .join('') ||
     '';
 
-  if (!cleanText(text)) {
+  if (
+    !cleanText(text)
+  ) {
     throw new Error(
       '[ScriptEngine] Gemini returned empty story.'
     );
   }
 
-  return extractJson(text);
+  return extractJson(
+    text
+  );
 }
 
 export async function generateScript(
@@ -688,11 +763,14 @@ export async function generateScript(
 ) {
   console.log(
     `[ScriptEngine] Creating original story for: ${
-      cleanText(topic) || 'unknown topic'
+      cleanText(topic) ||
+      'unknown topic'
     }`
   );
 
   let story;
+  let generatedBy =
+    'gemini';
 
   try {
     story =
@@ -701,10 +779,21 @@ export async function generateScript(
         options
       );
   } catch (error) {
+    generatedBy =
+      'fallback';
+
     console.warn(
-      '[ScriptEngine] Gemini failed. Using emergency fallback:',
+      '[ScriptEngine] Gemini generation failed.'
+    );
+
+    console.warn(
+      '[ScriptEngine] Reason:',
       error?.message ||
         error
+    );
+
+    console.warn(
+      '[ScriptEngine] Building structured local fallback story.'
     );
 
     story =
@@ -713,44 +802,74 @@ export async function generateScript(
       );
   }
 
-  const normalized =
-    normalizeStory(
-      story
-    );
+  let normalized;
 
   try {
+    normalized =
+      normalizeStory(
+        story
+      );
+
     validateStory(
       normalized
     );
   } catch (validationError) {
     console.warn(
-      '[ScriptEngine] Generated story failed validation. Using fallback.'
+      '[ScriptEngine] Story validation failed.'
     );
 
-    story =
+    console.warn(
+      '[ScriptEngine] Validation reason:',
+      validationError?.message ||
+        validationError
+    );
+
+    console.warn(
+      '[ScriptEngine] Rebuilding and validating structured fallback story.'
+    );
+
+    const fallback =
       createFallbackStory(
         topic
       );
 
-    return {
-      ...story,
-      generatedBy:
-        'fallback',
-      model:
-        'fallback',
-      validated:
-        true
-    };
+    validateStory(
+      fallback
+    );
+
+    normalized =
+      fallback;
+
+    generatedBy =
+      'fallback';
   }
+
+  console.log(
+    `[ScriptEngine] Story ready: ${normalized.title}`
+  );
+
+  console.log(
+    `[ScriptEngine] Generator: ${generatedBy}`
+  );
+
+  console.log(
+    `[ScriptEngine] Scenes: ${normalized.scenes.length}`
+  );
+
+  console.log(
+    `[ScriptEngine] Estimated duration: ${normalized.duration}s`
+  );
 
   return {
     ...normalized,
 
-    generatedBy:
-      'gemini',
+    generatedBy,
 
     model:
-      MODEL,
+      generatedBy ===
+      'gemini'
+        ? MODEL
+        : 'local-fallback',
 
     validated:
       true
