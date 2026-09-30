@@ -1,14 +1,200 @@
 import dotenv from 'dotenv';
+
 dotenv.config();
 
 export const config = {
-  pexelsApiKey: process.env.PEXELS_API_KEY || '',
+  // =========================
+  // AI
+  // =========================
   geminiApiKey: process.env.GEMINI_API_KEY || '',
+
+  // =========================
+  // Visual Provider
+  // =========================
+  pexelsApiKey: process.env.PEXELS_API_KEY || '',
+
+  // =========================
+  // Primary TTS - ElevenLabs
+  // =========================
+  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY || '',
+  elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID || '',
+
+  // =========================
+  // Backup TTS - Google Cloud
+  // =========================
+  googleCloudTtsApiKey:
+    process.env.GOOGLE_CLOUD_TTS_API_KEY || '',
+
+  googleCloudTtsVoice:
+    process.env.GOOGLE_CLOUD_TTS_VOICE || 'en-US-Neural2-D',
+
+  // =========================
+  // Backup TTS - Amazon Polly
+  // =========================
+  awsAccessKeyId:
+    process.env.AWS_ACCESS_KEY_ID || '',
+
+  awsSecretAccessKey:
+    process.env.AWS_SECRET_ACCESS_KEY || '',
+
+  awsRegion:
+    process.env.AWS_REGION || 'us-east-1',
+
+  awsPollyVoice:
+    process.env.AWS_POLLY_VOICE || 'Matthew',
+
+  // =========================
+  // TTS System
+  // =========================
+  ttsConfig: {
+    primaryProvider:
+      process.env.TTS_PRIMARY_PROVIDER || 'elevenlabs',
+
+    enableGoogleBackup:
+      process.env.ENABLE_GOOGLE_TTS_BACKUP !== 'false',
+
+    enableAmazonBackup:
+      process.env.ENABLE_AMAZON_POLLY_BACKUP !== 'false',
+
+    language:
+      process.env.TTS_LANGUAGE || 'en-US',
+
+    stability: Number(
+      process.env.ELEVENLABS_STABILITY || 0.5
+    ),
+
+    similarityBoost: Number(
+      process.env.ELEVENLABS_SIMILARITY_BOOST || 0.75
+    ),
+
+    style: Number(
+      process.env.ELEVENLABS_STYLE || 0.25
+    ),
+
+    speakerBoost:
+      process.env.ELEVENLABS_SPEAKER_BOOST !== 'false'
+  },
+
+  // =========================
+  // Video
+  // =========================
   videoConfig: {
     width: 1080,
     height: 1920,
+
     minDuration: 20,
     maxDuration: 59,
-    fps: 30
-  }
+
+    fps: 30,
+
+    videoCodec: 'libx264',
+    audioCodec: 'aac',
+
+    pixelFormat: 'yuv420p',
+
+    crf: 18,
+
+    audioBitrate: '192k'
+  },
+
+  // =========================
+  // Story System
+  // =========================
+  storyConfig: {
+    minScenes: 6,
+    maxScenes: 10,
+
+    targetWordsPerMinute: 150,
+
+    requireHook: true,
+    requireCharacter: true,
+    requireGoal: true,
+    requireConflict: true,
+    requireSetback: true,
+    requireTurningPoint: true,
+    requireResolution: true,
+    requireEnding: true,
+
+    requireSceneNarration: true,
+    requireVisualPromptPerScene: true
+  },
+
+  // =========================
+  // Audience
+  // =========================
+  audienceConfig: {
+    regions: ['US', 'UK', 'EU'],
+
+    primaryLanguage: 'en',
+
+    style: 'natural-english',
+
+    avoidHindiStyle: true,
+
+    culturallyNatural: true
+  },
+
+  // =========================
+  // Quality / QA
+  // =========================
+  qualityConfig: {
+    requireAudio: true,
+    requireVideo: true,
+
+    require1080x1920: true,
+
+    requireValidDuration: true,
+
+    requireCompleteNarration: true,
+
+    requireSceneSync: true,
+
+    requireVisualCoverage: true,
+
+    requireStoryStructure: true,
+
+    minimumVisualScenes: 6
+  },
+
+  // =========================
+  // Safety
+  // =========================
+  safetyConfig: {
+    enabled: true,
+
+    checkOriginality: true,
+
+    checkReusedContentRisk: true,
+
+    checkMassProducedPatterns: true,
+
+    checkSensitiveContent: true,
+
+    checkMisleadingAIContent: true,
+
+    checkMetadataRisk: true,
+
+    checkAIDisclosure: true,
+
+    blockHighRisk: true,
+
+    requireReviewForMediumRisk: true
+  },
+
+  // =========================
+  // Output
+  // =========================
+  outputDir:
+    process.env.OUTPUT_DIR || 'output_artifacts',
+
+  visualsDir:
+    process.env.VISUALS_DIR || 'output_artifacts/visuals',
+
+  audioDir:
+    process.env.AUDIO_DIR || 'output_artifacts/audio',
+
+  finalDir:
+    process.env.FINAL_DIR || 'output_artifacts/final'
 };
+
+export default config;
