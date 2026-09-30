@@ -6,6 +6,10 @@ const MODEL =
   process.env.GEMINI_MODEL ||
   'gemini-3.8-flash';
 
+// ---------------------------------------------------------
+// TEXT HELPERS
+// ---------------------------------------------------------
+
 function cleanText(value) {
   return String(value || '')
     .replace(/\s+/g, ' ')
@@ -39,114 +43,74 @@ function getVideoConfig() {
 }
 
 function getTargetWordsPerMinute() {
-  const storyConfig =
-    getStoryConfig();
+  const value = Number(
+    getStoryConfig()?.targetWordsPerMinute
+  );
 
-  const value =
-    Number(
-      storyConfig?.targetWordsPerMinute
-    );
-
-  return Number.isFinite(value) &&
-    value > 0
+  return Number.isFinite(value) && value > 0
     ? value
     : 150;
 }
 
 function estimateDuration(narration) {
-  const words =
-    cleanText(narration)
-      .split(/\s+/)
-      .filter(Boolean)
-      .length;
+  const words = cleanText(narration)
+    .split(/\s+/)
+    .filter(Boolean)
+    .length;
 
   if (words === 0) {
-    return (
-      Number(
-        getVideoConfig().minDuration
-      ) || 20
-    );
+    return Number(
+      getVideoConfig().minDuration
+    ) || 20;
   }
 
-  const minutes =
-    words /
-    getTargetWordsPerMinute();
-
-  const seconds =
-    Math.ceil(
-      minutes * 60
-    );
-
-  const videoConfig =
-    getVideoConfig();
+  const seconds = Math.ceil(
+    (words / getTargetWordsPerMinute()) * 60
+  );
 
   return clamp(
     seconds,
-    Number(
-      videoConfig.minDuration
-    ) || 20,
-    Number(
-      videoConfig.maxDuration
-    ) || 59
+    Number(getVideoConfig().minDuration) || 20,
+    Number(getVideoConfig().maxDuration) || 59
   );
 }
 
 function estimateSceneDuration(narration) {
-  const text =
-    cleanText(narration);
+  const text = cleanText(narration);
 
   if (!text) {
-    return 5;
+    return 3;
   }
 
-  const words =
-    text
-      .split(/\s+/)
-      .filter(Boolean)
-      .length;
+  const words = text
+    .split(/\s+/)
+    .filter(Boolean)
+    .length;
 
-  const duration =
-    Math.ceil(
-      (words /
-        getTargetWordsPerMinute()) *
-        60
-    );
-
-  return clamp(
-    duration,
-    2,
-    12
+  const seconds = Math.ceil(
+    (words / getTargetWordsPerMinute()) * 60
   );
+
+  return clamp(seconds, 2, 10);
 }
 
+// ---------------------------------------------------------
+// JSON EXTRACTION
+// ---------------------------------------------------------
+
 function extractJson(text) {
-  const cleaned =
-    String(text || '')
-      .trim()
-      .replace(
-        /^```json/i,
-        ''
-      )
-      .replace(
-        /^```/i,
-        ''
-      )
-      .replace(
-        /```$/i,
-        ''
-      )
-      .trim();
+  const cleaned = String(text || '')
+    .trim()
+    .replace(/^```json/i, '')
+    .replace(/^```/i, '')
+    .replace(/```$/i, '')
+    .trim();
 
   try {
-    return JSON.parse(
-      cleaned
-    );
+    return JSON.parse(cleaned);
   } catch {
-    const firstBrace =
-      cleaned.indexOf('{');
-
-    const lastBrace =
-      cleaned.lastIndexOf('}');
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
 
     if (
       firstBrace !== -1 &&
@@ -173,39 +137,34 @@ function extractJson(text) {
   }
 }
 
-function normalizeScene(
-  scene,
-  index
-) {
-  const narration =
-    cleanText(
-      scene?.narration ||
-      scene?.voiceover ||
-      scene?.voice ||
-      ''
-    );
+// ---------------------------------------------------------
+// SCENE NORMALIZATION
+// ---------------------------------------------------------
 
-  const visualPrompt =
-    cleanText(
-      scene?.visualPrompt ||
-      scene?.visual_prompt ||
-      scene?.description ||
-      ''
-    );
+function normalizeScene(scene, index) {
+  const narration = cleanText(
+    scene?.narration ||
+    scene?.voiceover ||
+    scene?.voice ||
+    ''
+  );
 
-  const suppliedDuration =
-    Number(
-      scene?.duration
-    );
+  const visualPrompt = cleanText(
+    scene?.visualPrompt ||
+    scene?.visual_prompt ||
+    scene?.description ||
+    ''
+  );
 
-  const rawCharacter =
-    scene?.character;
+  const suppliedDuration = Number(
+    scene?.duration
+  );
+
+  const rawCharacter = scene?.character;
 
   const character =
     typeof rawCharacter === 'string'
-      ? cleanText(
-          rawCharacter
-        )
+      ? cleanText(rawCharacter)
       : cleanText(
           rawCharacter?.description ||
           rawCharacter?.name ||
@@ -213,179 +172,167 @@ function normalizeScene(
           ''
         );
 
-  const environment =
-    cleanText(
-      scene?.environment ||
-      scene?.location ||
-      scene?.setting ||
-      ''
-    ) ||
-    'realistic modern environment with natural cinematic lighting';
+  const environment = cleanText(
+    scene?.environment ||
+    scene?.location ||
+    scene?.setting ||
+    ''
+  );
 
-  const action =
-    cleanText(
-      scene?.action ||
-      scene?.movement ||
-      ''
-    ) ||
-    'Alex continues the story action shown in the narration';
+  const action = cleanText(
+    scene?.action ||
+    scene?.movement ||
+    ''
+  );
 
-  const emotion =
-    cleanText(
-      scene?.emotion ||
-      scene?.mood ||
-      ''
-    ) ||
-    'focused and determined';
+  const emotion = cleanText(
+    scene?.emotion ||
+    scene?.mood ||
+    ''
+  );
 
   const finalCharacter =
     character ||
-    'Alex, a young adult with short dark hair, dark blue jacket and backpack';
+    'A young adult main character with a consistent appearance, hairstyle and clothing';
+
+  const finalEnvironment =
+    environment ||
+    'a realistic modern environment appropriate to the story';
+
+  const finalAction =
+    action ||
+    'continues the story action described by the narration';
+
+  const finalEmotion =
+    emotion ||
+    'natural and story-appropriate';
 
   const finalVisualPrompt =
     visualPrompt ||
-    `Cinematic vertical 9:16 realistic shot of ${finalCharacter}, ${action}, ${environment}, ${emotion}, consistent character appearance, natural cinematic lighting, realistic photography`;
+    [
+      'Cinematic vertical 9:16 realistic shot',
+      `of ${finalCharacter}`,
+      `${finalAction}`,
+      `in ${finalEnvironment}`,
+      `${finalEmotion} emotion`,
+      'consistent character appearance',
+      'natural cinematic lighting',
+      'realistic photography'
+    ].join(', ');
 
   return {
-    sceneNumber:
-      index + 1,
+    sceneNumber: index + 1,
 
     narration,
 
-    visualPrompt:
-      finalVisualPrompt,
+    visualPrompt: finalVisualPrompt,
 
     duration:
-      Number.isFinite(
-        suppliedDuration
-      ) &&
+      Number.isFinite(suppliedDuration) &&
       suppliedDuration > 0
-        ? clamp(
-            suppliedDuration,
-            2,
-            12
-          )
-        : estimateSceneDuration(
-            narration
-          ),
+        ? clamp(suppliedDuration, 2, 12)
+        : estimateSceneDuration(narration),
 
-    character:
-      finalCharacter,
+    character: finalCharacter,
 
-    environment,
+    environment: finalEnvironment,
 
-    action,
+    action: finalAction,
 
-    emotion
+    emotion: finalEmotion
   };
 }
+
+// ---------------------------------------------------------
+// STORY NORMALIZATION
+// ---------------------------------------------------------
 
 function normalizeStory(raw) {
-  const story =
-    raw || {};
+  const story = raw || {};
 
-  const rawScenes =
-    Array.isArray(
-      story.scenes
-    )
-      ? story.scenes
-      : [];
+  const rawScenes = Array.isArray(story.scenes)
+    ? story.scenes
+    : [];
 
-  const scenes =
-    rawScenes.map(
-      normalizeScene
-    );
+  const scenes = rawScenes.map(
+    (scene, index) =>
+      normalizeScene(scene, index)
+  );
 
-  const sceneNarration =
-    scenes
-      .map(
-        scene =>
-          scene.narration
-      )
-      .filter(Boolean)
-      .join(' ');
+  const sceneNarration = scenes
+    .map(scene => scene.narration)
+    .filter(Boolean)
+    .join(' ');
 
-  const narration =
-    cleanText(
-      story.narration ||
-      sceneNarration
-    );
+  const narration = cleanText(
+    story.narration ||
+    sceneNarration
+  );
 
   return {
-    title:
-      cleanText(
-        story.title
-      ),
+    title: cleanText(story.title),
 
-    category:
-      cleanText(
-        story.category
-      ),
+    category: cleanText(
+      story.category
+    ),
 
-    audience:
-      cleanText(
-        story.audience
-      ),
+    audience: cleanText(
+      story.audience
+    ),
 
-    hook:
-      cleanText(
-        story.hook
-      ),
+    hook: cleanText(
+      story.hook
+    ),
 
-    character:
-      cleanText(
-        typeof story.character === 'string'
-          ? story.character
-          : story.character?.description ||
-            story.character?.name ||
-            ''
-      ),
+    character: cleanText(
+      typeof story.character === 'string'
+        ? story.character
+        : story.character?.description ||
+          story.character?.name ||
+          ''
+    ),
 
-    goal:
-      cleanText(
-        story.goal
-      ),
+    goal: cleanText(
+      story.goal
+    ),
 
-    conflict:
-      cleanText(
-        story.conflict
-      ),
+    conflict: cleanText(
+      story.conflict
+    ),
 
-    setback:
-      cleanText(
-        story.setback
-      ),
+    setback: cleanText(
+      story.setback
+    ),
 
-    turningPoint:
-      cleanText(
-        story.turningPoint
-      ),
+    turningPoint: cleanText(
+      story.turningPoint
+    ),
 
-    resolution:
-      cleanText(
-        story.resolution
-      ),
+    resolution: cleanText(
+      story.resolution
+    ),
 
-    ending:
-      cleanText(
-        story.ending
-      ),
+    ending: cleanText(
+      story.ending
+    ),
 
-    lesson:
-      cleanText(
-        story.lesson
-      ),
+    lesson: cleanText(
+      story.lesson
+    ),
 
     narration,
 
-    duration:
-      estimateDuration(
-        narration
-      ),
+    duration: estimateDuration(
+      narration
+    ),
 
     scenes
   };
 }
+
+// ---------------------------------------------------------
+// STORY QUALITY VALIDATION
+// ---------------------------------------------------------
 
 function validateStory(story) {
   const storyConfig =
@@ -407,26 +354,16 @@ function validateStory(story) {
   const missingFields =
     requiredFields.filter(
       field =>
-        !cleanText(
-          story[field]
-        )
+        !cleanText(story[field])
     );
 
-  if (
-    missingFields.length > 0
-  ) {
+  if (missingFields.length > 0) {
     throw new Error(
-      `[ScriptEngine] Missing story fields: ${missingFields.join(
-        ', '
-      )}`
+      `[ScriptEngine] Missing story fields: ${missingFields.join(', ')}`
     );
   }
 
-  if (
-    !Array.isArray(
-      story.scenes
-    )
-  ) {
+  if (!Array.isArray(story.scenes)) {
     throw new Error(
       '[ScriptEngine] Story scenes are missing.'
     );
@@ -442,19 +379,13 @@ function validateStory(story) {
       storyConfig.maxScenes
     ) || 10;
 
-  if (
-    story.scenes.length <
-    minScenes
-  ) {
+  if (story.scenes.length < minScenes) {
     throw new Error(
       `[ScriptEngine] Story needs at least ${minScenes} scenes.`
     );
   }
 
-  if (
-    story.scenes.length >
-    maxScenes
-  ) {
+  if (story.scenes.length > maxScenes) {
     throw new Error(
       `[ScriptEngine] Story has too many scenes. Maximum is ${maxScenes}.`
     );
@@ -462,18 +393,11 @@ function validateStory(story) {
 
   const totalSceneNarration =
     story.scenes
-      .map(
-        scene =>
-          scene.narration
-      )
+      .map(scene => scene.narration)
       .filter(Boolean)
       .join(' ');
 
-  if (
-    !cleanText(
-      totalSceneNarration
-    )
-  ) {
+  if (!cleanText(totalSceneNarration)) {
     throw new Error(
       '[ScriptEngine] All scene narration is empty.'
     );
@@ -490,41 +414,31 @@ function validateStory(story) {
     const sceneNumber =
       index + 1;
 
-    if (
-      !scene.narration
-    ) {
+    if (!scene.narration) {
       throw new Error(
         `[ScriptEngine] Scene ${sceneNumber} has no narration.`
       );
     }
 
-    if (
-      !scene.visualPrompt
-    ) {
+    if (!scene.visualPrompt) {
       throw new Error(
         `[ScriptEngine] Scene ${sceneNumber} has no visual prompt.`
       );
     }
 
-    if (
-      !scene.character
-    ) {
+    if (!scene.character) {
       throw new Error(
         `[ScriptEngine] Scene ${sceneNumber} has no character continuity data.`
       );
     }
 
-    if (
-      !scene.environment
-    ) {
+    if (!scene.environment) {
       throw new Error(
         `[ScriptEngine] Scene ${sceneNumber} has no environment continuity data.`
       );
     }
 
-    if (
-      !scene.action
-    ) {
+    if (!scene.action) {
       throw new Error(
         `[ScriptEngine] Scene ${sceneNumber} has no action.`
       );
@@ -532,13 +446,9 @@ function validateStory(story) {
 
     if (
       !Number.isFinite(
-        Number(
-          scene.duration
-        )
+        Number(scene.duration)
       ) ||
-      Number(
-        scene.duration
-      ) <= 0
+      Number(scene.duration) <= 0
     ) {
       throw new Error(
         `[ScriptEngine] Scene ${sceneNumber} has invalid duration.`
@@ -549,325 +459,853 @@ function validateStory(story) {
   return true;
 }
 
+// ---------------------------------------------------------
+// CONTENT LANES
+// ---------------------------------------------------------
+
+const CONTENT_LANES = [
+  {
+    name: 'Funny Story',
+    instruction:
+      'Build an entertaining funny situation with a believable problem, escalating awkwardness or surprise, and a satisfying comedic payoff. Humour must be understandable internationally.'
+  },
+
+  {
+    name: 'Amazing Fact Story',
+    instruction:
+      'Build the story around one genuinely interesting fact or phenomenon. Do not invent statistics or present uncertain claims as facts. Make the discovery entertaining.'
+  },
+
+  {
+    name: 'Mystery and Curiosity',
+    instruction:
+      'Create a curiosity-driven story where the viewer keeps asking what is happening and receives a clear reveal or explanation by the end.'
+  },
+
+  {
+    name: 'Interesting Human Story',
+    instruction:
+      'Create a relatable human situation with emotion, tension and a memorable ending. Avoid generic motivational speeches.'
+  },
+
+  {
+    name: 'Technology and Modern Life',
+    instruction:
+      'Create an entertaining story around technology, modern life or an everyday digital problem. Keep it understandable without specialist knowledge.'
+  },
+
+  {
+    name: 'Unexpected Everyday Story',
+    instruction:
+      'Turn an ordinary situation into an unexpected mini-story with a strong hook, escalating events and a memorable payoff.'
+  },
+
+  {
+    name: 'Emotional Surprise',
+    instruction:
+      'Create a short emotionally engaging story with a genuine turning point and satisfying ending. Avoid manipulation, fake tragedy and exaggerated claims.'
+  },
+
+  {
+    name: 'Clever Problem Solving',
+    instruction:
+      'Create a story where the main character faces a practical problem and solves it through an unexpected but believable idea.'
+  }
+];
+
+function getContentLane(options = {}) {
+  const explicitLane =
+    cleanText(
+      options?.contentLane
+    );
+
+  if (explicitLane) {
+    return explicitLane;
+  }
+
+  const variationIndex =
+    Number(
+      options?.variationIndex
+    );
+
+  if (
+    Number.isInteger(
+      variationIndex
+    ) &&
+    variationIndex >= 0
+  ) {
+    return CONTENT_LANES[
+      variationIndex %
+      CONTENT_LANES.length
+    ];
+  }
+
+  return CONTENT_LANES[0];
+}
+
+// ---------------------------------------------------------
+// FALLBACK STORY
+// ---------------------------------------------------------
+
 function createFallbackStory(
-  topic
+  topic,
+  options = {}
 ) {
   const subject =
     cleanText(topic) ||
-    'Never Give Up';
+    'an unexpected everyday problem';
 
-  const hero =
-    'Alex, a young adult with short dark hair, dark blue jacket and backpack';
+  const variationIndex =
+    Number.isInteger(
+      Number(options?.variationIndex)
+    )
+      ? Number(options.variationIndex)
+      : 0;
 
-  const baseScenes = [
+  const lane =
+    CONTENT_LANES[
+      Math.abs(variationIndex) %
+      CONTENT_LANES.length
+    ];
+
+  const stories = [
     {
-      narration:
-        'Everyone thought the story was already over.',
+      title:
+        'The Coffee That Started a Very Bad Morning',
+
+      hook:
+        'He thought he was having a normal morning. Then the coffee machine exploded.',
 
       character:
-        hero,
+        'Alex, a young adult with short dark hair, a dark blue jacket and a backpack',
 
+      goal:
+        'Get to work on time after making one quick coffee.',
+
+      conflict:
+        'The coffee machine suddenly sprays coffee across the kitchen.',
+
+      setback:
+        'Alex cleans the mess but then notices coffee has stained the only shirt ready for work.',
+
+      turningPoint:
+        'Instead of panicking, Alex uses a simple spare shirt hidden in the backpack.',
+
+      resolution:
+        'Alex changes quickly and still manages to leave on time.',
+
+      ending:
+        'The morning was a disaster, but the emergency backpack finally made sense.',
+
+      lesson:
+        'Sometimes the boring backup plan is the thing that saves the day.'
+    },
+
+    {
+      title:
+        'The Tiny Mistake That Changed Everything',
+
+      hook:
+        'One tiny mistake turned an ordinary task into a surprisingly useful discovery.',
+
+      character:
+        'Maya, a young professional with curly dark hair, a green jacket and a small shoulder bag',
+
+      goal:
+        'Finish an important task before leaving for the day.',
+
+      conflict:
+        'Maya accidentally changes one small setting and gets an unexpected result.',
+
+      setback:
+        'She assumes everything is broken and starts over from the beginning.',
+
+      turningPoint:
+        'She notices the unexpected result actually solves the problem she was trying to fix.',
+
+      resolution:
+        'Maya tests the discovery and confirms that it works.',
+
+      ending:
+        'The mistake was not the solution, but it showed her where to look.',
+
+      lesson:
+        'An unexpected result can sometimes reveal the better question.'
+    },
+
+    {
+      title:
+        'The Package Nobody Expected',
+
+      hook:
+        'A package arrived at the door, but nobody in the building had ordered it.',
+
+      character:
+        'Daniel, a curious young man with short brown hair, a grey hoodie and a backpack',
+
+      goal:
+        'Find out who the mysterious package belongs to.',
+
+      conflict:
+        'The label contains only a first name and an old apartment number.',
+
+      setback:
+        'Daniel searches the building but cannot find anyone matching the name.',
+
+      turningPoint:
+        'An elderly neighbour recognises the name from a story the building had almost forgotten.',
+
+      resolution:
+        'Daniel finds the correct family member and safely returns the package.',
+
+      ending:
+        'The mystery turns out to be much older than the package itself.',
+
+      lesson:
+        'Sometimes a small mystery is really a piece of someone else’s history.'
+    },
+
+    {
+      title:
+        'The Phone That Would Not Stop Talking',
+
+      hook:
+        'His phone started reading everything out loud at exactly the worst possible time.',
+
+      character:
+        'Sam, a young adult with short black hair, a black hoodie and wireless earbuds',
+
+      goal:
+        'Silence the phone before an important meeting begins.',
+
+      conflict:
+        'Every notification is suddenly spoken aloud.',
+
+      setback:
+        'Sam changes the volume, restarts the phone and removes the earbuds, but nothing works.',
+
+      turningPoint:
+        'He discovers an accessibility setting was accidentally activated.',
+
+      resolution:
+        'Sam switches the setting off and the phone becomes quiet again.',
+
+      ending:
+        'The problem was not a broken phone. It was one setting hiding in plain sight.',
+
+      lesson:
+        'Before replacing something, check the simple settings first.'
+    },
+
+    {
+      title:
+        'The Shortcut That Was Not a Shortcut',
+
+      hook:
+        'He took a shortcut to save five minutes and somehow made the trip twice as long.',
+
+      character:
+        'Leo, a young adult with short dark hair, a navy jacket and a small backpack',
+
+      goal:
+        'Reach an appointment five minutes early.',
+
+      conflict:
+        'Leo decides to use an unfamiliar shortcut.',
+
+      setback:
+        'The shortcut leads through a confusing series of streets and puts him farther away.',
+
+      turningPoint:
+        'He stops rushing and checks the route properly.',
+
+      resolution:
+        'Leo finds a simple direct route and arrives just in time.',
+
+      ending:
+        'The shortcut failed because he was trying too hard to save time.',
+
+      lesson:
+        'Going faster is not always the same as making progress.'
+    }
+  ];
+
+  const template =
+    stories[
+      Math.abs(variationIndex) %
+      stories.length
+    ];
+
+  const scenes = [
+    {
+      narration:
+        template.hook,
+      character:
+        template.character,
       action:
-        'Alex stands alone and looks at the difficult challenge ahead.',
-
+        'The main character faces the unexpected situation described by the hook.',
       emotion:
-        'uncertain but determined',
-
+        'surprised and curious',
       environment:
-        'realistic modern city street at early morning',
-
+        'a realistic modern everyday location',
       visualPrompt:
-        `Cinematic vertical realistic shot of ${hero}, standing alone on a modern city street at early morning, looking toward a difficult challenge, natural lighting, consistent character appearance, realistic photography`
+        `Cinematic vertical 9:16 realistic shot of ${template.character}, experiencing the opening event described by the story, realistic modern environment, natural lighting, expressive reaction, consistent character appearance`
     },
 
     {
       narration:
-        'Alex had one simple goal: to finish the challenge before the day ended.',
-
+        `The goal was simple: ${template.goal}`,
       character:
-        hero,
-
+        template.character,
       action:
-        'Alex checks the plan and starts moving toward the goal.',
-
+        'The character starts working toward the goal.',
       emotion:
         'focused',
-
       environment:
-        'same modern city street, early morning',
-
+        'the same realistic location',
       visualPrompt:
-        `Cinematic vertical realistic shot of the same ${hero}, checking a simple plan and walking toward the challenge, same city environment and morning lighting, consistent face and clothing, realistic photography`
+        `Cinematic vertical 9:16 realistic shot of the same ${template.character}, beginning the task, same environment and clothing, natural cinematic lighting, consistent character`
     },
 
     {
       narration:
-        'At first, everything seemed to go wrong.',
-
+        template.conflict,
       character:
-        hero,
-
+        template.character,
       action:
-        'Alex discovers that the original plan has failed.',
-
+        'The unexpected problem appears.',
       emotion:
-        'frustrated',
-
+        'confused and surprised',
       environment:
-        'same city area near the challenge',
-
+        'the same location',
       visualPrompt:
-        `Cinematic vertical realistic shot of the same ${hero}, discovering that the plan has failed, frustrated expression, same city environment, realistic natural lighting, consistent character`
+        `Cinematic vertical 9:16 realistic shot of the same ${template.character}, reacting to the unexpected problem, same environment, realistic action, consistent appearance`
     },
 
     {
       narration:
-        'Then a serious setback made giving up feel easier than continuing.',
-
+        template.setback,
       character:
-        hero,
-
+        template.character,
       action:
-        'Alex sits briefly, thinking about giving up.',
-
+        'The character attempts to deal with the setback.',
       emotion:
-        'discouraged',
-
+        'frustrated but determined',
       environment:
-        'same city area, quiet afternoon transition',
-
+        'the same story location',
       visualPrompt:
-        `Cinematic vertical realistic shot of the same ${hero}, sitting alone near the challenge and thinking about giving up, discouraged expression, consistent environment, realistic cinematic photography`
+        `Cinematic vertical 9:16 realistic shot of the same ${template.character}, dealing with the setback, believable physical action, same environment and clothing, natural lighting`
     },
 
     {
       narration:
-        'Alex stopped, looked at the problem again, and noticed one small detail everyone had missed.',
-
+        template.turningPoint,
       character:
-        hero,
-
+        template.character,
       action:
-        'Alex notices a small but important detail and changes the plan.',
-
+        'The character notices the important clue or idea.',
       emotion:
         'surprised and hopeful',
-
       environment:
-        'same location near the challenge',
-
+        'the same location',
       visualPrompt:
-        `Cinematic vertical realistic close shot of the same ${hero}, suddenly noticing a small important detail, surprised hopeful expression, studying the problem carefully, same environment, realistic cinematic photography`
+        `Cinematic vertical close-up of the same ${template.character}, noticing the key clue or idea, expressive surprised reaction, same environment, realistic photography`
     },
 
     {
       narration:
-        'That changed the entire plan.',
-
+        template.resolution,
       character:
-        hero,
-
+        template.character,
       action:
-        'Alex confidently follows the new plan.',
-
+        'The character follows the new solution.',
       emotion:
-        'determined',
-
+        'confident',
       environment:
-        'same challenge location',
-
+        'the same location',
       visualPrompt:
-        `Cinematic vertical realistic shot of the same ${hero}, confidently following a new plan at the challenge location, determined expression, consistent environment and lighting, realistic cinematic photography`
+        `Cinematic vertical 9:16 realistic shot of the same ${template.character}, successfully following the solution, believable action, consistent environment and appearance`
     },
 
     {
       narration:
-        'Alex tried one more time, solved the problem step by step, and finally reached the goal.',
-
+        template.ending,
       character:
-        hero,
-
+        template.character,
       action:
-        'Alex completes the challenge and reaches the goal.',
-
+        'The character reaches the final outcome.',
       emotion:
-        'relieved and proud',
-
+        'relieved and amused',
       environment:
-        'same location at golden hour',
-
+        'the same realistic location',
       visualPrompt:
-        `Cinematic vertical realistic shot of the same ${hero}, successfully completing the challenge and reaching the goal, relieved proud expression, warm natural golden-hour lighting, same environment, realistic cinematic photography`
+        `Cinematic vertical 9:16 realistic final shot of the same ${template.character}, experiencing the final outcome, relieved expressive reaction, consistent environment, natural cinematic lighting`
     },
 
     {
       narration:
-        'The lesson was simple: a setback can change your plan without deciding your ending.',
-
+        template.lesson,
       character:
-        hero,
-
+        template.character,
       action:
-        'Alex walks away calmly after completing the goal.',
-
+        'The character calmly moves on after the experience.',
       emotion:
-        'peaceful and confident',
-
+        'calm and satisfied',
       environment:
-        'same city street at sunset',
-
+        'the same location during the final moment',
       visualPrompt:
-        `Cinematic vertical realistic final shot of the same ${hero}, calmly walking away after completing the goal, peaceful confident expression, same city street at sunset, natural cinematic lighting, realistic photography`
+        `Cinematic vertical 9:16 realistic closing shot of the same ${template.character}, calmly leaving after the experience, subtle satisfying expression, consistent appearance and environment, cinematic realistic photography`
     }
   ];
 
   const narration =
-    baseScenes
-      .map(
-        scene =>
-          scene.narration
-      )
+    scenes
+      .map(scene => scene.narration)
       .join(' ');
 
   return normalizeStory({
     title:
-      subject,
+      template.title,
 
     category:
-      'Life Lesson',
+      lane.name,
 
     audience:
-      'US UK Europe',
+      'UK, USA and Europe',
 
     hook:
-      'Everyone thought the story was already over.',
+      template.hook,
 
     character:
-      hero,
+      template.character,
 
     goal:
-      'Finish a difficult challenge before the day ends.',
+      template.goal,
 
     conflict:
-      'The original plan fails and the challenge becomes harder.',
+      template.conflict,
 
     setback:
-      'A serious failure makes Alex consider giving up.',
+      template.setback,
 
     turningPoint:
-      'Alex notices a small detail that everyone else missed.',
+      template.turningPoint,
 
     resolution:
-      'Alex changes the plan and solves the problem step by step.',
+      template.resolution,
 
     ending:
-      'Alex reaches the goal and walks away with a clear lesson.',
+      template.ending,
 
     lesson:
-      'A setback can change your plan without deciding your ending.',
+      template.lesson,
 
     narration,
 
-    scenes:
-      baseScenes
+    scenes
   });
 }
 
+// ---------------------------------------------------------
+// PROMPT BUILDER
+// ---------------------------------------------------------
+
 function buildPrompt(
   topic,
-  options
+  options = {}
 ) {
   const requestedCategory =
     cleanText(
       options?.category
     ) ||
-    'Life Lesson';
+    'Entertainment / Interesting Story';
 
   const region =
     cleanText(
       options?.region
     ) ||
-    'US, UK and Europe';
+    'UK, USA and Europe';
+
+  const variationIndex =
+    Number.isInteger(
+      Number(options?.variationIndex)
+    )
+      ? Number(options.variationIndex)
+      : 0;
+
+  const lane =
+    getContentLane({
+      ...options,
+      variationIndex
+    });
+
+  const batchSize =
+    Number(options?.batchSize) > 0
+      ? Number(options.batchSize)
+      : 1;
 
   return `
-You are the Story Director for a professional YouTube Shorts production system.
+You are the senior Story Director and YouTube Shorts writer for ZEESHAN AI LABS.
 
-Create ONE completely original short-form story.
+Your job is NOT to write a generic motivational script.
+
+Your job is to create ONE highly engaging, original, coherent short-form mini-film that people naturally want to keep watching.
 
 TOPIC:
-${cleanText(topic) || 'Create an original story.'}
+${cleanText(topic) || 'Create an original entertaining story.'}
 
-CATEGORY:
+REQUESTED CATEGORY:
 ${requestedCategory}
+
+CONTENT LANE:
+${lane.name}
+
+CONTENT LANE DIRECTION:
+${lane.instruction}
 
 TARGET AUDIENCE:
 ${region}
 
-LANGUAGE:
-Natural modern English suitable for viewers in the US, UK and Europe.
+IMPORTANT AUDIENCE RULE:
+The audience is INTERNATIONAL ENGLISH:
+- United States
+- United Kingdom
+- Europe
 
-IMPORTANT:
-- Do NOT copy an existing movie, video, article, story, celebrity story or creator.
-- Do NOT imitate a known creator.
-- Do NOT create generic disconnected motivational quotes.
-- The video must feel like ONE complete mini-film.
-- Events must logically cause the next events.
-- The ending must resolve the central problem.
-- Every scene must visually represent its narration.
-- Keep the same main character across every scene.
-- Keep important environment/location details consistent.
-- Do not introduce unexplained characters or objects.
-- Use realistic, filmable visual descriptions.
-- Avoid impossible or contradictory actions.
-- Avoid unnecessary dialogue.
-- Narration must tell the COMPLETE story.
+Do NOT write this as a UK-only video.
 
-STORY STRUCTURE:
-1. Hook
-2. Character
-3. Goal
-4. Conflict
-5. Setback
-6. Turning Point
-7. Resolution
-8. Ending
+Use natural modern English that is easy to understand across the US, UK and Europe.
 
-LENGTH:
-20–59 seconds total.
+Avoid:
+- UK-only slang
+- US-only slang
+- highly regional jokes
+- unexplained local references
+- country-specific assumptions
+- political messaging
+- fake statistics
+- fake quotes
+- fake news
+- deceptive claims
 
-SCENES:
+The story should feel natural to a broad English-speaking audience.
+
+==================================================
+CORE VIEWER-RETENTION GOAL
+==================================================
+
+The first seconds must create immediate curiosity.
+
+The viewer should quickly wonder:
+
+"What happens next?"
+
+Use one or more of:
+- an unexpected situation
+- a funny problem
+- a surprising discovery
+- a mystery
+- an emotional question
+- a strange but believable event
+- a relatable problem
+- an unusual consequence
+
+Do NOT use empty clickbait.
+
+The hook must actually connect to the story.
+
+==================================================
+STORY STYLE
+==================================================
+
+Make the video feel like a tiny movie.
+
+Required progression:
+
+1. HOOK
+2. CHARACTER / SITUATION
+3. GOAL
+4. PROBLEM
+5. ESCALATION
+6. SETBACK
+7. DISCOVERY / TWIST
+8. RESOLUTION
+9. PAYOFF / ENDING
+
+Not every story needs all nine as separate scenes, but the information must exist in the complete story.
+
+The story must have cause-and-effect.
+
+Every major event must logically lead to the next event.
+
+Do NOT create random disconnected scenes.
+
+==================================================
+ENTERTAINMENT
+==================================================
+
+When appropriate, include:
+- humour
+- surprise
+- awkwardness
+- curiosity
+- emotional contrast
+- clever problem solving
+- a satisfying reveal
+- an unexpected ending
+
+Funny does NOT mean adding random jokes.
+
+The humour must come from the situation, character reaction or payoff.
+
+If the topic is serious, use an appropriate engaging style instead of forcing comedy.
+
+==================================================
+NARRATION
+==================================================
+
+The narration must tell the COMPLETE story.
+
+The viewer must understand:
+- who the main character is
+- what they want
+- what goes wrong
+- what changes
+- how the problem develops
+- what the turning point is
+- how it ends
+
+No incomplete narration.
+
+No vague filler.
+
+No generic motivational paragraph pretending to be a story.
+
+Use short, natural spoken sentences.
+
+Write for voice narration, not for an essay.
+
+Avoid tongue-twisters and unnecessarily complex sentences.
+
+==================================================
+VISUAL STORY MATCH
+==================================================
+
+Every scene must visually represent its narration.
+
+If narration says:
+"Alex opens the door"
+
+the visual must show:
+Alex opening the door.
+
+Do NOT show unrelated:
+- random city streets
+- random buses
+- random buildings
+- random gyms
+- random people
+- random landscapes
+
+unless those things are actually part of the scene.
+
+Each visual prompt must contain:
+- main character
+- exact action
+- environment
+- emotion
+- important objects
+- continuity details
+
+==================================================
+CHARACTER CONTINUITY
+==================================================
+
+Choose ONE main character.
+
+Keep the same:
+- approximate age
+- hair
+- clothing
+- physical appearance
+- important accessories
+
+across the entire story.
+
+Do not randomly change the character between scenes.
+
+If another character is necessary, introduce them clearly.
+
+==================================================
+ENVIRONMENT CONTINUITY
+==================================================
+
+When the story remains in the same place, keep:
+- location
+- important objects
+- time of day
+- weather
+- visual identity
+
+consistent.
+
+Only change location when the story requires it.
+
+==================================================
+VISUAL PROMPTS
+==================================================
+
+Use realistic, filmable descriptions.
+
+Every prompt must be vertical 9:16 friendly.
+
+Do not request impossible camera actions.
+
+Do not create contradictory scenes.
+
+Do not put multiple unrelated events into one scene.
+
+==================================================
+SHORTS LENGTH
+==================================================
+
+Total duration:
+20–59 seconds.
+
 Create 6–10 scenes.
 
-Each scene MUST contain:
-- sceneNumber
-- narration
-- duration
-- character
-- environment
-- action
-- emotion
-- visualPrompt
+Target a strong Shorts pace.
 
-The narration of all scenes together must tell the COMPLETE story.
+Avoid extremely short scenes that make the final video feel rushed.
 
-SCENE TIMING:
-Duration should approximately match the narration length.
-Do not give every scene the same arbitrary duration.
+Avoid unnecessary pauses.
 
-VISUAL CONTINUITY:
-Repeat the important character identity in every scene:
-age range, hair, clothing, physical appearance and persistent details.
+==================================================
+BATCH UNIQUENESS
+==================================================
 
-Repeat important environment details when the location remains the same.
+This video may be part of a batch.
 
-OUTPUT:
+BATCH SIZE:
+${batchSize}
+
+CURRENT VIDEO INDEX:
+${variationIndex + 1}
+
+The system must produce materially different videos in a batch.
+
+If this is video 2, 3, 4 or 5:
+DO NOT reuse the same:
+- plot
+- hook
+- character situation
+- setting
+- joke
+- twist
+- ending
+- sequence of events
+
+Do not simply rewrite the same story with different names.
+
+Each video must feel independently created.
+
+==================================================
+ORIGINALITY
+==================================================
+
+Create an original concept.
+
+Do not copy:
+- movies
+- TV shows
+- YouTube videos
+- TikTok videos
+- articles
+- famous stories
+- creators
+- existing scripts
+
+Do not imitate a specific creator.
+
+Do not use recognizable copyrighted characters.
+
+==================================================
+FACT SAFETY
+==================================================
+
+If the story uses factual information:
+
+- use only information you can state responsibly
+- do not invent statistics
+- do not invent scientific claims
+- do not invent historical claims
+- do not present uncertain information as certain
+
+If a fact cannot be confidently stated, make the story fictional rather than inventing a fact.
+
+==================================================
+ENDING
+==================================================
+
+The ending must provide a payoff.
+
+Possible endings:
+- funny punchline
+- surprising reveal
+- emotional resolution
+- clever solution
+- satisfying lesson
+- unexpected but logical twist
+
+Do NOT suddenly stop.
+
+Do NOT repeat the hook as the ending.
+
+==================================================
+TITLE
+==================================================
+
+Create a short, curiosity-driven title.
+
+It must honestly represent the video.
+
+Do not use deceptive clickbait.
+
+==================================================
+SCENE REQUIREMENTS
+==================================================
+
+Create 6–10 scenes.
+
+Every scene MUST contain:
+
+sceneNumber
+narration
+duration
+character
+environment
+action
+emotion
+visualPrompt
+
+The combined scene narration must tell the complete story.
+
+==================================================
+OUTPUT
+==================================================
+
 Return ONLY valid JSON.
 
-Required JSON structure:
+No markdown.
+
+No explanation.
+
+Required structure:
+
 {
   "title": "",
   "category": "",
-  "audience": "",
+  "audience": "UK, USA and Europe",
   "hook": "",
   "character": "",
   "goal": "",
@@ -893,6 +1331,10 @@ Required JSON structure:
 }
 `;
 }
+
+// ---------------------------------------------------------
+// GEMINI GENERATION
+// ---------------------------------------------------------
 
 async function generateWithGemini(
   topic,
@@ -929,34 +1371,63 @@ async function generateWithGemini(
   const text =
     response?.text ||
     response?.candidates?.[0]?.content?.parts
-      ?.map(
-        part =>
-          part.text || ''
-      )
+      ?.map(part => part.text || '')
       .join('') ||
     '';
 
-  if (
-    !cleanText(text)
-  ) {
+  if (!cleanText(text)) {
     throw new Error(
       '[ScriptEngine] Gemini returned empty story.'
     );
   }
 
-  return extractJson(
-    text
-  );
+  return extractJson(text);
 }
+
+// ---------------------------------------------------------
+// PUBLIC SCRIPT GENERATOR
+// ---------------------------------------------------------
 
 export async function generateScript(
   topic = '',
   options = {}
 ) {
   console.log(
-    `[ScriptEngine] Creating original story for: ${
+    `[ScriptEngine] Creating engaging original story for: ${
       cleanText(topic) ||
       'unknown topic'
+    }`
+  );
+
+  const variationIndex =
+    Number.isInteger(
+      Number(options?.variationIndex)
+    )
+      ? Number(options.variationIndex)
+      : 0;
+
+  const lane =
+    getContentLane({
+      ...options,
+      variationIndex
+    });
+
+  console.log(
+    `[ScriptEngine] Audience: ${
+      cleanText(
+        options?.region
+      ) ||
+      'UK, USA and Europe'
+    }`
+  );
+
+  console.log(
+    `[ScriptEngine] Content lane: ${lane.name}`
+  );
+
+  console.log(
+    `[ScriptEngine] Batch variation: ${
+      variationIndex + 1
     }`
   );
 
@@ -969,7 +1440,10 @@ export async function generateScript(
     story =
       await generateWithGemini(
         topic,
-        options
+        {
+          ...options,
+          variationIndex
+        }
       );
   } catch (error) {
     generatedBy =
@@ -981,8 +1455,7 @@ export async function generateScript(
 
     console.warn(
       '[ScriptEngine] Reason:',
-      error?.message ||
-        error
+      error?.message || error
     );
 
     console.warn(
@@ -991,7 +1464,11 @@ export async function generateScript(
 
     story =
       createFallbackStory(
-        topic
+        topic,
+        {
+          ...options,
+          variationIndex
+        }
       );
   }
 
@@ -1023,7 +1500,11 @@ export async function generateScript(
 
     const fallback =
       createFallbackStory(
-        topic
+        topic,
+        {
+          ...options,
+          variationIndex
+        }
       );
 
     validateStory(
@@ -1067,15 +1548,17 @@ export async function generateScript(
     generatedBy,
 
     model:
-      generatedBy ===
-      'gemini'
+      generatedBy === 'gemini'
         ? MODEL
         : 'local-fallback',
 
-    validated:
-      true
+    validated: true
   };
 }
+
+// ---------------------------------------------------------
+// PUBLIC VALIDATOR
+// ---------------------------------------------------------
 
 export function validateGeneratedScript(
   script
@@ -1091,6 +1574,10 @@ export function validateGeneratedScript(
 
   return normalized;
 }
+
+// ---------------------------------------------------------
+// DEFAULT EXPORT
+// ---------------------------------------------------------
 
 export default {
   generateScript,
