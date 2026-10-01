@@ -12,22 +12,29 @@ const MAX_DURATION = 59;
 
 const TARGET_WPM = 150;
 
+const MIN_NARRATION_WORDS = 50;
+const MAX_NARRATION_WORDS = 145;
+
+const MIN_HOOK_WORDS = 7;
+const MAX_HOOK_WORDS = 28;
+
 const BATCH_LANES = [
   {
     name: 'Motivation',
     category: 'Motivation',
     instruction: `
-Create an original motivational mini-story.
+Create an original, emotionally engaging motivational mini-story.
 
-The character should face a believable problem,
-setback or failure and gradually discover a practical
-way forward.
+Use a specific real-life problem.
+Show the protagonist attempting something.
+Create a meaningful setback.
+Introduce a practical turning point.
+End with an earned result.
 
 Do not use generic motivational quotes.
-
-Show the struggle through actual events.
-
-The ending should feel earned rather than preachy.
+Do not preach.
+Do not simply say "never give up".
+The lesson must come from what actually happens.
 `
   },
 
@@ -37,15 +44,15 @@ The ending should feel earned rather than preachy.
     instruction: `
 Create an original situational comedy story.
 
-Use one clear funny situation that develops naturally.
+Start with one specific awkward, surprising or funny situation.
+Let the situation escalate naturally.
+Every scene should make the situation clearer or funnier.
+Build toward an unexpected but logical payoff.
 
-Build toward an unexpected but logical comedic payoff.
-
-Do not use random meme references.
-
-Do not make every scene a joke.
-
-The humour must come from the characters and situation.
+Do not rely on memes.
+Do not use random jokes.
+Do not make every scene a separate joke.
+The humour must come from the situation and characters.
 `
   },
 
@@ -53,16 +60,15 @@ The humour must come from the characters and situation.
     name: 'Interesting Facts',
     category: 'Amazing Information',
     instruction: `
-Create an entertaining story around one genuinely
-interesting and verifiable fact, phenomenon or discovery.
+Create an entertaining Short around ONE genuinely interesting,
+well-established and verifiable fact or phenomenon.
 
-The information must be presented simply.
+Open with a specific curiosity question or surprising fact.
+Explain it through a simple story or visual example.
+Keep the information accurate and easy to understand.
 
-Do not invent statistics, studies, scientific claims,
-historical claims or fake expert statements.
-
-If factual certainty is unavailable, choose a safer
-well-established fact or avoid the claim.
+Never invent statistics, studies, experts or historical claims.
+Never present uncertain information as fact.
 `
   },
 
@@ -72,16 +78,14 @@ well-established fact or avoid the claim.
     instruction: `
 Create an original fictional mystery.
 
-Give the viewer a clear question in the opening.
+The first scene must establish a specific mystery.
+Give the viewer a clear question.
+Introduce clues progressively.
+Make every clue useful.
+Build toward one logical reveal.
 
-Introduce clues gradually.
-
-Every important clue must connect to the final reveal.
-
-The mystery must have a logical fictional explanation.
-
-Do not fabricate real crimes, real victims,
-real news events or fake evidence.
+Do not fabricate real crimes, victims, evidence or news.
+The mystery must be clearly fictional when appropriate.
 `
   },
 
@@ -91,48 +95,49 @@ real news events or fake evidence.
     instruction: `
 Create an original emotional human story.
 
-Use believable relationships, ordinary life situations,
-personal setbacks or meaningful decisions.
+Use a believable everyday relationship, decision or life problem.
+Show emotion through actions and choices rather than dramatic speeches.
+Build toward a sincere turning point.
+End with a meaningful and understandable resolution.
 
 Avoid fake tragedy.
-
 Avoid emotional manipulation.
-
-Build toward a sincere and understandable resolution
-or life lesson.
+Avoid generic inspirational language.
 `
   }
 ];
 
 const FALLBACK_STORIES = [
   {
-    title: 'One More Try',
+    title: 'The Different Approach',
     category: 'Motivation',
+    topicKeywords: ['failure', 'practice', 'mistake', 'improve'],
     hook:
-      'After failing the same test three times, Daniel almost stopped trying.',
+      'Daniel failed the same practical test three times, but the fourth attempt was different.',
     character:
       'Daniel, a young adult with short dark hair, a navy hoodie and a black backpack',
     goal:
       'Pass an important practical test.',
     conflict:
-      'Daniel keeps making the same mistake during practice.',
+      'Daniel keeps repeating the same mistake during practice.',
     setback:
-      'He fails the test again and feels ready to quit.',
+      'He fails the test again after making that mistake at the worst possible moment.',
     turningPoint:
-      'Instead of practicing everything again, Daniel studies the exact mistake that keeps stopping him.',
+      'Daniel stops practicing everything and focuses only on the mistake that keeps causing the failure.',
     resolution:
-      'He changes his approach and practices that specific weakness until it becomes natural.',
+      'He changes his practice method and repeats that specific skill until it becomes natural.',
     ending:
-      'On the next attempt, Daniel finally passes.',
+      'On the next attempt, Daniel handles the problem correctly and passes the test.',
     lesson:
-      'Sometimes progress begins when you stop repeating the same approach.'
+      'Sometimes progress comes from fixing one specific weakness instead of doing everything again.'
   },
 
   {
-    title: 'The Wrong Meeting',
+    title: 'The Wrong Room',
     category: 'Funny Story',
+    topicKeywords: ['meeting', 'office', 'mistake', 'funny'],
     hook:
-      'Sam walked into an important meeting, sat down confidently, and immediately realized nobody knew him.',
+      'Sam confidently joined a meeting, then realized nobody in the room knew who he was.',
     character:
       'Sam, a young professional with short brown hair, a grey jacket and a laptop bag',
     goal:
@@ -140,57 +145,59 @@ const FALLBACK_STORIES = [
     conflict:
       'Sam accidentally enters the wrong meeting room.',
     setback:
-      'He spends several minutes trying to understand why everyone is discussing a project he has never seen.',
+      'He spends several minutes trying to understand a project he has never heard about.',
     turningPoint:
-      'Someone finally asks Sam which department he works for.',
+      'A manager finally asks Sam which department he works for.',
     resolution:
-      'Sam checks his phone and discovers the meeting is in the room next door.',
+      'Sam checks his phone and discovers his actual meeting is in the room next door.',
     ending:
-      'He apologizes, walks next door, and arrives at his actual meeting just in time.',
+      'He apologizes, walks next door and arrives at the correct meeting just in time.',
     lesson:
-      'Confidence is useful, but checking the room number helps too.'
+      'Confidence helps, but checking the room number helps more.'
   },
 
   {
     title: 'Why Ice Floats',
     category: 'Amazing Information',
+    topicKeywords: ['ice', 'water', 'science', 'lake'],
     hook:
-      'There is a strange reason a lake does not simply freeze from the bottom upward.',
+      'Ice looks like it should sink, but one strange property of water makes it float.',
     character:
       'Maya, a curious young woman with curly dark hair, a green coat and a small backpack',
     goal:
-      'Understand why ice stays on top of water.',
+      'Understand why ice floats on liquid water.',
     conflict:
-      'Maya notices that frozen water floats instead of sinking.',
+      'Maya notices that solid ice behaves differently from many other solids.',
     setback:
-      'The behaviour seems backwards compared with many other materials.',
+      'She initially assumes freezing should make water heavier and denser.',
     turningPoint:
-      'She learns that water expands as it freezes, making solid ice less dense than liquid water.',
+      'She learns that water expands as it freezes, making ice less dense than liquid water.',
     resolution:
-      'The floating ice forms a surface layer while deeper water can remain liquid.',
+      'Because ice is less dense, it stays at the surface instead of sinking.',
     ending:
-      'That unusual property helps aquatic life survive cold conditions.',
+      'That floating layer can help keep deeper water from freezing completely.',
     lesson:
-      'One unusual property of water has major consequences for life on Earth.'
+      'One unusual property of water has important consequences for life.'
   },
 
   {
-    title: 'The Light That Stayed On',
+    title: 'The Midnight Light',
     category: 'Mystery and Curiosity',
+    topicKeywords: ['light', 'office', 'midnight', 'mystery'],
     hook:
-      'Every night at exactly midnight, a light appeared in an empty office.',
+      'Every night at exactly midnight, a light appeared inside an empty office.',
     character:
       'Ethan, a young investigator with short black hair, a dark jacket and a small notebook',
     goal:
-      'Find out why the empty office light keeps turning on.',
+      'Discover why the office light keeps turning on.',
     conflict:
-      'Nobody admits to entering the building at night.',
+      'Nobody appears to enter the building at night.',
     setback:
-      'The security camera appears to show an empty hallway.',
+      'The security footage shows an empty hallway when the light turns on.',
     turningPoint:
-      'Ethan notices the light switches on at exactly the same minute every night.',
+      'Ethan notices the light activates at exactly the same time every night.',
     resolution:
-      'He discovers an old automated timer still controlling the office lights.',
+      'He discovers an old automatic timer still controls the office lights.',
     ending:
       'The mystery was not a person at all. It was a forgotten setting.',
     lesson:
@@ -198,24 +205,25 @@ const FALLBACK_STORIES = [
   },
 
   {
-    title: 'The Last Message',
+    title: 'The Hidden Note',
     category: 'Interesting Human Story',
+    topicKeywords: ['message', 'apartment', 'memory', 'moving'],
     hook:
-      'Before leaving his old apartment, Noah found a message hidden behind a shelf.',
+      'While moving out, Noah found a handwritten message hidden behind an old shelf.',
     character:
       'Noah, a young man with short dark hair, a brown jacket and a moving box',
     goal:
-      'Finish moving out of his old apartment.',
+      'Finish moving out and begin the next chapter of his life.',
     conflict:
-      'The apartment reminds Noah of someone important from his past.',
+      'The old apartment reminds Noah of someone and a promise from his past.',
     setback:
-      'While packing, he finds an old handwritten message hidden behind a shelf.',
+      'The hidden message makes him stop packing and reconsider leaving.',
     turningPoint:
-      'The message reminds Noah of a promise he once made to keep moving forward.',
+      'The message reminds Noah that moving forward was part of the promise.',
     resolution:
-      'Instead of staying stuck in the past, Noah finishes packing.',
+      'He finishes packing instead of remaining trapped in the memory.',
     ending:
-      'He carries the final box outside and looks back one last time before leaving.',
+      'Noah carries the final box outside and leaves the apartment behind.',
     lesson:
       'Moving forward does not mean forgetting where you came from.'
   }
@@ -232,7 +240,13 @@ function cleanText(value) {
 }
 
 function wordCount(text) {
-  return cleanText(text)
+  const value = cleanText(text);
+
+  if (!value) {
+    return 0;
+  }
+
+  return value
     .split(/\s+/)
     .filter(Boolean)
     .length;
@@ -243,6 +257,24 @@ function clamp(value, min, max) {
     Math.max(value, min),
     max
   );
+}
+
+function normalizeForComparison(text) {
+  return cleanText(text)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getWords(text) {
+  return normalizeForComparison(text)
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function uniqueWords(text) {
+  return [...new Set(getWords(text))];
 }
 
 function estimateDuration(text) {
@@ -281,17 +313,59 @@ function estimateSceneDuration(text) {
   );
 }
 
+function hasMeaningfulOverlap(a, b) {
+  const first = new Set(
+    uniqueWords(a).filter(
+      word => word.length >= 4
+    )
+  );
+
+  const second =
+    uniqueWords(b).filter(
+      word => word.length >= 4
+    );
+
+  if (
+    first.size === 0 ||
+    second.length === 0
+  ) {
+    return false;
+  }
+
+  let matches = 0;
+
+  for (const word of second) {
+    if (first.has(word)) {
+      matches += 1;
+    }
+  }
+
+  return (
+    matches >=
+    Math.min(
+      4,
+      Math.max(
+        2,
+        Math.floor(
+          second.length * 0.35
+        )
+      )
+    )
+  );
+}
+
 // ============================================================
 // JSON EXTRACTION
 // ============================================================
 
 function extractJson(text) {
-  const cleaned = String(text || '')
-    .trim()
-    .replace(/^```json/i, '')
-    .replace(/^```/i, '')
-    .replace(/```$/i, '')
-    .trim();
+  const cleaned =
+    String(text || '')
+      .trim()
+      .replace(/^```json/i, '')
+      .replace(/^```/i, '')
+      .replace(/```$/i, '')
+      .trim();
 
   try {
     return JSON.parse(cleaned);
@@ -351,7 +425,12 @@ function getContentLane(options = {}) {
       name: explicit,
       category: explicit,
       instruction:
-        'Create an original, coherent and entertaining story.'
+        `
+Create an original, coherent,
+specific and entertaining YouTube Short.
+Use a strong hook, clear topic,
+progressive story structure and a real payoff.
+`
     };
   }
 
@@ -369,12 +448,210 @@ function getContentLane(options = {}) {
 }
 
 // ============================================================
-// SCENE VISUAL VALIDATION HELPERS
+// TOPIC VALIDATION
 // ============================================================
 
-function containsWeakVisualLanguage(text) {
+function normalizeTopic(topic) {
+  return cleanText(topic)
+    .replace(/^topic\s*:/i, '')
+    .trim();
+}
+
+function validateTopicSpecificity(
+  story,
+  topic
+) {
+  const requestedTopic =
+    normalizeTopic(topic);
+
+  if (!requestedTopic) {
+    return;
+  }
+
+  const storyText = [
+    story.title,
+    story.hook,
+    story.goal,
+    story.conflict,
+    story.setback,
+    story.turningPoint,
+    story.resolution,
+    story.ending,
+    story.lesson,
+    story.narration,
+    ...story.scenes.map(
+      scene =>
+        `${scene.narration} ${scene.action} ${scene.visualPrompt}`
+    )
+  ].join(' ');
+
+  const topicWords =
+    uniqueWords(requestedTopic)
+      .filter(
+        word =>
+          word.length >= 4 &&
+          ![
+            'story',
+            'video',
+            'short',
+            'youtube',
+            'about',
+            'make',
+            'create'
+          ].includes(word)
+      );
+
+  if (
+    topicWords.length === 0
+  ) {
+    return;
+  }
+
+  const storyWords =
+    new Set(
+      uniqueWords(storyText)
+    );
+
+  const matches =
+    topicWords.filter(
+      word =>
+        storyWords.has(word)
+    );
+
+  const requiredMatches =
+    topicWords.length === 1
+      ? 1
+      : Math.min(
+          2,
+          topicWords.length
+        );
+
+  if (
+    matches.length <
+    requiredMatches
+  ) {
+    throw new Error(
+      `[ScriptEngine] Story does not clearly use the requested topic: "${requestedTopic}".`
+    );
+  }
+}
+
+// ============================================================
+// HOOK VALIDATION
+// ============================================================
+
+function validateHook(
+  story
+) {
+  const hook =
+    cleanText(story.hook);
+
+  const words =
+    wordCount(hook);
+
+  if (
+    words <
+    MIN_HOOK_WORDS
+  ) {
+    throw new Error(
+      '[ScriptEngine] Hook is too short.'
+    );
+  }
+
+  if (
+    words >
+    MAX_HOOK_WORDS
+  ) {
+    throw new Error(
+      '[ScriptEngine] Hook is too long for a Shorts opening.'
+    );
+  }
+
+  const weakHooks = [
+    'never give up',
+    'believe in yourself',
+    'you can do anything',
+    'follow your dreams',
+    'life is hard',
+    'this will change your life',
+    'wait until the end'
+  ];
+
+  const normalized =
+    normalizeForComparison(hook);
+
+  if (
+    weakHooks.some(
+      phrase =>
+        normalized.includes(
+          phrase
+        )
+    )
+  ) {
+    throw new Error(
+      '[ScriptEngine] Hook is generic or cliché.'
+    );
+  }
+
+  if (
+    !/[.!?]/.test(hook)
+  ) {
+    throw new Error(
+      '[ScriptEngine] Hook must be a complete spoken sentence.'
+    );
+  }
+}
+
+// ============================================================
+// PAYOFF VALIDATION
+// ============================================================
+
+function validatePayoff(
+  story
+) {
+  const ending =
+    cleanText(story.ending);
+
+  const resolution =
+    cleanText(story.resolution);
+
+  const turningPoint =
+    cleanText(story.turningPoint);
+
+  if (
+    wordCount(ending) < 6
+  ) {
+    throw new Error(
+      '[ScriptEngine] Ending does not contain enough information for a payoff.'
+    );
+  }
+
+  if (
+    hasMeaningfulOverlap(
+      ending,
+      turningPoint
+    ) &&
+    hasMeaningfulOverlap(
+      ending,
+      resolution
+    )
+  ) {
+    throw new Error(
+      '[ScriptEngine] Ending appears repetitive instead of providing a payoff.'
+    );
+  }
+}
+
+// ============================================================
+// SCENE VISUAL VALIDATION
+// ============================================================
+
+function containsWeakVisualLanguage(
+  text
+) {
   const value =
-    cleanText(text).toLowerCase();
+    cleanText(text)
+      .toLowerCase();
 
   const weakTerms = [
     'random footage',
@@ -386,7 +663,9 @@ function containsWeakVisualLanguage(text) {
     'random person',
     'random people',
     'random city',
-    'random landscape'
+    'random landscape',
+    'cinematic footage',
+    'beautiful cinematic shot'
   ];
 
   return weakTerms.some(
@@ -417,7 +696,7 @@ function validateSceneVisualRelationship(
     )
   ) {
     throw new Error(
-      `[ScriptEngine] Scene ${number} contains weak/unrelated visual language.`
+      `[ScriptEngine] Scene ${number} contains weak or unrelated visual language.`
     );
   }
 
@@ -430,13 +709,13 @@ function validateSceneVisualRelationship(
     narrationWords < 4
   ) {
     throw new Error(
-      `[ScriptEngine] Scene ${number} narration is too short to drive a meaningful visual.`
+      `[ScriptEngine] Scene ${number} narration is too short.`
     );
   }
 
   if (
-    cleanText(scene.action).length <
-    8
+    cleanText(scene.action)
+      .length < 10
   ) {
     throw new Error(
       `[ScriptEngine] Scene ${number} action is too vague.`
@@ -444,8 +723,8 @@ function validateSceneVisualRelationship(
   }
 
   if (
-    cleanText(scene.environment).length <
-    5
+    cleanText(scene.environment)
+      .length < 8
   ) {
     throw new Error(
       `[ScriptEngine] Scene ${number} environment is too vague.`
@@ -453,11 +732,74 @@ function validateSceneVisualRelationship(
   }
 
   if (
-    cleanText(scene.character).length <
-    8
+    cleanText(scene.character)
+      .length < 8
   ) {
     throw new Error(
       `[ScriptEngine] Scene ${number} character continuity data is too weak.`
+    );
+  }
+
+  if (
+    cleanText(scene.importantObject)
+      .length < 5
+  ) {
+    throw new Error(
+      `[ScriptEngine] Scene ${number} importantObject is too vague.`
+    );
+  }
+
+  const visualText =
+    normalizeForComparison(
+      scene.visualPrompt
+    );
+
+  const actionText =
+    normalizeForComparison(
+      scene.action
+    );
+
+  const objectText =
+    normalizeForComparison(
+      scene.importantObject
+    );
+
+  if (
+    actionText.length < 10 ||
+    objectText.length < 5
+  ) {
+    throw new Error(
+      `[ScriptEngine] Scene ${number} does not provide enough visual-event information.`
+    );
+  }
+
+  const actionWords =
+    uniqueWords(
+      actionText
+    ).filter(
+      word =>
+        word.length >= 4
+    );
+
+  const visualWords =
+    new Set(
+      uniqueWords(
+        visualText
+      )
+    );
+
+  const actionMatches =
+    actionWords.filter(
+      word =>
+        visualWords.has(word)
+    );
+
+  if (
+    actionWords.length >= 2 &&
+    actionMatches.length === 0
+  ) {
+    throw new Error(
+      `[ScriptEngine] Scene ${number} visualPrompt does not clearly reference the scene action.`
     );
   }
 }
@@ -521,14 +863,13 @@ function normalizeScene(
     cleanText(
       scene?.visualPrompt ||
       scene?.visual_prompt ||
-      scene?.description ||
       ''
     );
 
   const finalCharacter =
     character ||
     storyCharacter ||
-    'A young adult main character with consistent appearance, hairstyle and clothing';
+    'A young adult protagonist with consistent appearance, hairstyle and clothing';
 
   const finalEnvironment =
     environment ||
@@ -544,23 +885,28 @@ function normalizeScene(
 
   const finalObject =
     importantObject ||
-    'the key object described by the narration';
+    'the key object directly involved in the narrated event';
 
   const finalVisualPrompt =
     suppliedVisual ||
     [
       'Cinematic realistic vertical 9:16 shot',
-      `of ${finalCharacter}`,
-      `performing ${finalAction}`,
-      `in ${finalEnvironment}`,
-      `showing ${finalEmotion}`,
+      `showing ${finalCharacter}`,
+      `physically performing ${finalAction}`,
+      `inside ${finalEnvironment}`,
       `with ${finalObject}`,
-      'the exact narrated action must be clearly visible',
-      'same character appearance',
-      'same clothing and hairstyle',
+      `showing ${finalEmotion}`,
+      'the exact narrated event must be clearly visible',
+      'maintain the same character appearance',
+      'maintain the same hairstyle and clothing',
+      'maintain important object continuity',
       'natural cinematic lighting',
       'realistic photography',
-      'no unrelated objects or events'
+      'no unrelated people',
+      'no unrelated objects',
+      'no text overlays',
+      'no logos',
+      'no watermark'
     ].join(', ');
 
   const suppliedDuration =
@@ -737,7 +1083,10 @@ function normalizeStory(raw) {
         characterContinuityRequired: true,
         originalityRequired: true,
         repetitionRiskChecked: true,
-        metadataRiskChecked: true
+        metadataRiskChecked: true,
+        hookQualityChecked: true,
+        topicSpecificityChecked: true,
+        payoffChecked: true
       },
 
     scenes
@@ -749,7 +1098,9 @@ function normalizeStory(raw) {
 // ============================================================
 
 function validateStory(
-  story
+  story,
+  topic = '',
+  options = {}
 ) {
   const requiredFields = [
     'title',
@@ -798,6 +1149,110 @@ function validateStory(
   ) {
     throw new Error(
       `[ScriptEngine] Scene count must be ${MIN_SCENES}-${MAX_SCENES}.`
+    );
+  }
+
+  validateHook(story);
+  validatePayoff(story);
+
+  if (
+    cleanText(story.goal).length < 8
+  ) {
+    throw new Error(
+      '[ScriptEngine] Story goal is too vague.'
+    );
+  }
+
+  if (
+    cleanText(story.conflict).length < 10
+  ) {
+    throw new Error(
+      '[ScriptEngine] Story conflict is too vague.'
+    );
+  }
+
+  if (
+    cleanText(story.setback).length < 10
+  ) {
+    throw new Error(
+      '[ScriptEngine] Story setback is too vague.'
+    );
+  }
+
+  if (
+    cleanText(story.turningPoint).length < 10
+  ) {
+    throw new Error(
+      '[ScriptEngine] Story turning point is too vague.'
+    );
+  }
+
+  if (
+    cleanText(story.resolution).length < 10
+  ) {
+    throw new Error(
+      '[ScriptEngine] Story resolution is too vague.'
+    );
+  }
+
+  const narrationWords =
+    wordCount(
+      story.narration
+    );
+
+  if (
+    narrationWords <
+    MIN_NARRATION_WORDS
+  ) {
+    throw new Error(
+      `[ScriptEngine] Narration is too short. Minimum ${MIN_NARRATION_WORDS} words.`
+    );
+  }
+
+  if (
+    narrationWords >
+    MAX_NARRATION_WORDS
+  ) {
+    throw new Error(
+      `[ScriptEngine] Narration is too long. Maximum ${MAX_NARRATION_WORDS} words.`
+    );
+  }
+
+  const sceneNarration =
+    story.scenes
+      .map(
+        scene =>
+          scene.narration
+      )
+      .join(' ');
+
+  const sceneWords =
+    wordCount(
+      sceneNarration
+    );
+
+  if (
+    sceneWords < MIN_NARRATION_WORDS
+  ) {
+    throw new Error(
+      '[ScriptEngine] Scene narration coverage is too short.'
+    );
+  }
+
+  if (
+    Math.abs(
+      sceneWords -
+      narrationWords
+    ) >
+    Math.max(
+      15,
+      Math.ceil(
+        narrationWords * 0.25
+      )
+    )
+  ) {
+    throw new Error(
+      '[ScriptEngine] Story narration and scene narration differ too much.'
     );
   }
 
@@ -861,6 +1316,14 @@ function validateStory(
     }
 
     if (
+      !scene.importantObject
+    ) {
+      throw new Error(
+        `[ScriptEngine] Scene ${number} has no importantObject.`
+      );
+    }
+
+    if (
       !Number.isFinite(
         Number(
           scene.duration
@@ -881,25 +1344,45 @@ function validateStory(
     );
   }
 
-  const totalWords =
-    wordCount(
-      story.narration
-    );
+  validateTopicSpecificity(
+    story,
+    topic
+  );
 
-  if (
-    totalWords < 45
-  ) {
-    throw new Error(
-      '[ScriptEngine] Narration is too short for a complete Shorts story.'
-    );
-  }
+  const previousConcepts =
+    Array.isArray(
+      options.previousConcepts
+    )
+      ? options.previousConcepts
+          .map(
+            item =>
+              cleanText(item)
+          )
+          .filter(Boolean)
+      : [];
 
-  if (
-    totalWords > 170
+  const currentConcept =
+    [
+      story.title,
+      story.hook,
+      story.goal,
+      story.conflict,
+      story.ending
+    ].join(' ');
+
+  for (
+    const previous of previousConcepts
   ) {
-    throw new Error(
-      '[ScriptEngine] Narration is too long for a 20–59 second Short.'
-    );
+    if (
+      hasMeaningfulOverlap(
+        currentConcept,
+        previous
+      )
+    ) {
+      throw new Error(
+        '[ScriptEngine] Story is too similar to a previous concept.'
+      );
+    }
   }
 
   return true;
@@ -925,10 +1408,59 @@ function createFallbackStory(
       ? Math.abs(rawIndex)
       : 0;
 
+  const requestedTopic =
+    normalizeTopic(topic);
+
+  let templateIndex =
+    index %
+    FALLBACK_STORIES.length;
+
+  if (
+    requestedTopic
+  ) {
+    const topicWords =
+      uniqueWords(
+        requestedTopic
+      );
+
+    const matchingTemplates =
+      FALLBACK_STORIES
+        .map(
+          (template, templateIndex) => ({
+            template,
+            templateIndex,
+            matches:
+              topicWords.filter(
+                word =>
+                  template.topicKeywords.includes(
+                    word
+                  )
+              ).length
+          })
+        )
+        .filter(
+          item =>
+            item.matches > 0
+        )
+        .sort(
+          (a, b) =>
+            b.matches -
+            a.matches
+        );
+
+    if (
+      matchingTemplates.length > 0
+    ) {
+      templateIndex =
+        matchingTemplates[
+          0
+        ].templateIndex;
+    }
+  }
+
   const template =
     FALLBACK_STORIES[
-      index %
-      FALLBACK_STORIES.length
+      templateIndex
     ];
 
   const scenes = [
@@ -940,36 +1472,36 @@ function createFallbackStory(
         template.character,
 
       environment:
-        'the main location where the story begins',
+        'the main story location where the opening event happens',
 
       action:
-        'experiences the opening situation described by the hook',
+        'experiences the specific opening event described by the hook',
 
       emotion:
         'surprised and curious',
 
       importantObject:
-        'the main object connected to the opening event'
+        'the main object directly connected to the opening event'
     },
 
     {
       narration:
-        `The goal was simple: ${template.goal}`,
+        `The goal is simple: ${template.goal}`,
 
       character:
         template.character,
 
       environment:
-        'the same main location',
+        'the same main story location',
 
       action:
-        'starts working toward the goal',
+        'takes a clear action toward the goal',
 
       emotion:
         'focused',
 
       importantObject:
-        'the object needed for the goal'
+        'the object directly needed for the goal'
     },
 
     {
@@ -980,16 +1512,16 @@ function createFallbackStory(
         template.character,
 
       environment:
-        'the same location as the previous scene',
+        'the same story location',
 
       action:
-        'reacts as the main problem appears',
+        'encounters the specific problem described by the narration',
 
       emotion:
-        'confused and surprised',
+        'confused and concerned',
 
       importantObject:
-        'the object causing or revealing the problem'
+        'the object involved in the problem'
     },
 
     {
@@ -1009,7 +1541,7 @@ function createFallbackStory(
         'frustrated but determined',
 
       importantObject:
-        'the object involved in the setback'
+        'the object directly involved in the setback'
     },
 
     {
@@ -1023,13 +1555,13 @@ function createFallbackStory(
         'the same story location',
 
       action:
-        'notices the important clue or idea',
+        'notices or uses the specific idea that changes the situation',
 
       emotion:
         'surprised and hopeful',
 
       importantObject:
-        'the clue or object that creates the turning point'
+        'the clue, tool or object responsible for the turning point'
     },
 
     {
@@ -1043,10 +1575,10 @@ function createFallbackStory(
         'the same story location',
 
       action:
-        'follows the new solution',
+        'applies the new solution to the original problem',
 
       emotion:
-        'confident',
+        'focused and confident',
 
       importantObject:
         'the object used in the solution'
@@ -1060,10 +1592,10 @@ function createFallbackStory(
         template.character,
 
       environment:
-        'the final location of the story',
+        'the final location connected to the outcome',
 
       action:
-        'experiences the final outcome',
+        'experiences the final result of the story',
 
       emotion:
         'relieved and satisfied',
@@ -1107,9 +1639,14 @@ function createFallbackStory(
         index
     });
 
+  const finalTitle =
+    requestedTopic
+      ? `${template.title} — ${requestedTopic}`
+      : template.title;
+
   return normalizeStory({
     title:
-      template.title,
+      finalTitle,
 
     category:
       lane.category,
@@ -1124,7 +1661,9 @@ function createFallbackStory(
       template.character,
 
     goal:
-      template.goal,
+      requestedTopic
+        ? `${template.goal} The story specifically explores ${requestedTopic}.`
+        : template.goal,
 
     conflict:
       template.conflict,
@@ -1156,7 +1695,10 @@ function createFallbackStory(
       characterContinuityRequired: true,
       originalityRequired: true,
       repetitionRiskChecked: true,
-      metadataRiskChecked: true
+      metadataRiskChecked: true,
+      hookQualityChecked: true,
+      topicSpecificityChecked: true,
+      payoffChecked: true
     },
 
     scenes
@@ -1209,6 +1751,9 @@ function buildPrompt(
     ) ||
     lane.category;
 
+  const requestedTopic =
+    normalizeTopic(topic);
+
   const previousConcepts =
     Array.isArray(
       options.previousConcepts
@@ -1228,7 +1773,19 @@ YouTube Shorts Story Director,
 Visual Story Director and Quality Editor
 for ZEESHAN AI LABS.
 
-Create ONE complete original YouTube Short.
+Your job is to create ONE professional,
+original, highly watchable YouTube Short.
+
+This is NOT a generic story generator.
+
+The finished Short must have:
+A SPECIFIC TOPIC
+A STRONG OPENING HOOK
+A CLEAR STORY QUESTION OR PROMISE
+PROGRESSIVE EVENTS
+A MEANINGFUL TURNING POINT
+A REAL PAYOFF
+A SATISFYING ENDING
 
 ============================================================
 AUDIENCE
@@ -1242,14 +1799,11 @@ EUROPE
 
 Use natural international English.
 
-Do NOT make the story specifically UK-only.
+Avoid obscure slang.
 
-Avoid obscure regional slang.
+Avoid region-specific references unless necessary.
 
-Avoid political persuasion.
-
-Avoid local references that international viewers
-would not understand.
+Do not make the story specifically UK-only.
 
 ============================================================
 CURRENT VIDEO
@@ -1261,32 +1815,47 @@ ${batchSize}
 Current video number:
 ${variationIndex + 1}
 
-Required creative lane:
-
+Creative lane:
 ${lane.name}
 
-Required category:
-
+Category:
 ${requestedCategory}
 
 Creative direction:
-
 ${lane.instruction}
 
-Topic:
-
-${cleanText(topic) || 'Create an original topic appropriate for the selected creative lane.'}
-
 ============================================================
-BATCH DIVERSITY IS MANDATORY
+MANDATORY TOPIC
 ============================================================
 
-This is one video inside a five-video batch.
+Requested topic:
 
-The five videos must NOT feel like variations
-of the same story.
+${requestedTopic || 'Generate one specific, interesting topic suitable for the assigned creative lane.'}
 
-The batch should normally contain:
+The requested topic is NOT optional.
+
+If a topic is supplied:
+- Build the entire story around that topic.
+- Mention or demonstrate the topic naturally.
+- Make the hook directly connected to the topic.
+- Make the ending/payoff connected to the topic.
+- Do not replace the topic with a generic motivational story.
+- Do not merely append the topic to the title.
+
+If the topic is empty:
+generate one specific topic yourself.
+
+The final story must make it obvious what the video is about.
+
+============================================================
+BATCH DIVERSITY
+============================================================
+
+This is one video inside a batch.
+
+The batch should contain materially different concepts.
+
+Normal five-video rotation:
 
 VIDEO 1:
 Motivation
@@ -1303,46 +1872,77 @@ Mystery
 VIDEO 5:
 Emotional / Life
 
-Current video must strongly follow its assigned lane.
-
 Do NOT simply change the title.
 
 Change the actual:
 
+- concept
 - plot
 - characters
 - setting
 - problem
 - goal
+- mechanism
 - visual situations
 - emotional progression
-- ending
-- story mechanism
+- payoff
 
-============================================================
-PREVIOUS CONCEPTS
-============================================================
-
-If previous concepts are supplied below,
-do NOT repeat or closely imitate them.
+Previous concepts:
 
 ${previousConcepts || 'No previous concepts supplied.'}
 
+Never closely repeat a previous concept.
+
 ============================================================
-STORY REQUIREMENT
+HOOK — EXTREMELY IMPORTANT
+============================================================
+
+The first 1–2 seconds are critical.
+
+Create a hook that immediately creates curiosity.
+
+The hook should contain at least one of:
+
+- a surprising situation
+- a specific question
+- an unusual problem
+- an unexpected discovery
+- a strong emotional situation
+- a specific mystery
+
+Do NOT use generic hooks such as:
+
+"Never give up."
+
+"Believe in yourself."
+
+"Life is hard."
+
+"Anything is possible."
+
+"You won't believe this."
+
+"Wait until the end."
+
+The hook must be honest.
+
+The hook must connect directly to the actual story.
+
+The hook must be paid off later.
+
+============================================================
+STORY ENGINE
 ============================================================
 
 Create a complete mini-film.
 
-Required structure:
+Required progression:
 
 HOOK
 ↓
 SETUP
 ↓
-CHARACTER
-↓
-GOAL
+GOAL / QUESTION
 ↓
 PROBLEM
 ↓
@@ -1352,33 +1952,19 @@ SETBACK
 ↓
 TURNING POINT
 ↓
-RESOLUTION
+SOLUTION / REVEAL
 ↓
 PAYOFF
+↓
+ENDING
 
-The story must have cause and effect.
+Every scene must cause or logically lead to the next scene.
 
-Scene 2 must logically follow scene 1.
+No unrelated cinematic shots.
 
-Scene 3 must logically follow scene 2.
+No filler scenes.
 
-Continue this chain until the ending.
-
-Never create a collection of unrelated cinematic shots.
-
-============================================================
-HOOK
-============================================================
-
-The first scene must immediately establish:
-
-- who
-- what
-- why it matters
-
-The hook must actually happen later in the story.
-
-No empty clickbait.
+No scene should exist only because the video needs more scenes.
 
 ============================================================
 CHARACTER
@@ -1388,138 +1974,93 @@ Use one primary protagonist.
 
 Define:
 
-- age range
+- name
+- approximate age
 - appearance
 - hairstyle
+- hair colour
 - clothing
 - accessories
 
-Keep these details identical across scenes.
+Keep the protagonist identical across scenes.
 
-Do NOT randomly change the protagonist.
-
-If another character appears,
-give that character a stable description too.
+If another recurring character appears,
+give that character stable visual details.
 
 ============================================================
 LOCATION
 ============================================================
 
-Choose a believable main setting.
+Use one main believable setting.
 
-Examples:
+A location can change only when the story causes the change.
 
-- apartment
-- workshop
-- office
-- café
-- street
-- school
-- park
-- train station
-- home
-- small business
-
-Do not randomly move between unrelated locations.
-
-A location change must be caused by the story.
+Keep important objects consistent.
 
 ============================================================
-VISUAL STORY MATCH — CRITICAL
+SCENE EVENT RULE
 ============================================================
 
-THIS IS ONE OF THE MOST IMPORTANT REQUIREMENTS.
+Every scene must describe an ACTUAL EVENT.
 
-Every visualPrompt must directly show
-what the narration describes.
+Narration must say what is happening.
 
-The visual cannot merely match the mood.
+Action must describe the physical action.
 
-It must match the EVENT.
+VisualPrompt must show that physical action.
 
 Example:
 
 Narration:
 "Daniel opens the old metal box."
 
-Correct visual:
-Daniel physically opening the old metal box.
+Action:
+"Daniel lifts the lid of the old metal box."
 
-Incorrect visual:
-Daniel walking through a city.
+Visual:
+"Daniel physically lifting the lid of the old metal box."
 
-Incorrect visual:
-A random fisherman.
+BAD:
 
-Incorrect visual:
-A random director.
+Narration:
+"Daniel opens the box."
 
-Incorrect visual:
-A random detective board.
+Visual:
+"Daniel walking through a city."
 
-Every scene must visually communicate
-the exact narrated action.
+The visual must never merely represent the mood.
 
 ============================================================
-VISUAL CONTINUITY — CRITICAL
+VISUAL PROMPT REQUIREMENTS
 ============================================================
 
-The same protagonist must remain visually consistent.
+Every visualPrompt must include:
 
-Keep:
-
-- hairstyle
-- hair colour
-- approximate age
-- clothing
-- accessories
-- body appearance
-
-consistent.
-
-Keep important locations and objects consistent.
-
-============================================================
-SCENE DESIGN
-============================================================
-
-Create 6–10 scenes.
-
-Each scene must contain:
-
-1. narration
-2. duration
-3. character
-4. environment
-5. action
-6. emotion
-7. importantObject
-8. visualPrompt
-
-The visualPrompt must explicitly include:
-
-- character
-- exact action
+- protagonist
+- exact physical action
 - environment
 - emotion
 - important object
 - continuity
-- vertical 9:16 framing
+- vertical 9:16 composition
+- realistic cinematic appearance
 
-============================================================
-NO RANDOM STOCK FOOTAGE
-============================================================
+The exact narrated event must be clearly visible.
 
-Do NOT write visual prompts such as:
+Avoid:
 
+- random footage
+- generic scene
 - generic cinematic footage
-- random city
-- random person
-- random landscape
 - stock footage
-- unrelated cinematic shot
-
-The visual must be story-specific.
+- random person
+- random city
+- unrelated objects
+- unrelated characters
+- unrelated events
+- text
+- logos
+- watermarks
 
 ============================================================
 VOICEOVER
@@ -1527,17 +2068,18 @@ VOICEOVER
 
 Write natural spoken English.
 
-Use short conversational sentences.
+Use conversational sentences.
 
 Avoid:
 
 - essay language
 - corporate language
-- robotic phrases
+- robotic wording
 - unnecessary exposition
-- repeated ideas
+- repeated sentences
+- generic motivational quotes
 
-The narration must tell the entire story.
+The narration must tell the complete story.
 
 ============================================================
 DURATION
@@ -1551,32 +2093,34 @@ Use approximately:
 
 150 words per minute.
 
-Keep narration concise enough for a Short.
+Aim for approximately 50–145 narration words.
+
+Do not sacrifice story clarity just to increase duration.
 
 ============================================================
-ENDING
+ENDING / PAYOFF
 ============================================================
 
-The ending must provide an actual payoff.
+The ending must resolve the central question or problem.
 
-Possible endings:
+Possible payoffs:
 
-- logical reveal
-- funny punchline
-- useful takeaway
-- emotional resolution
+- surprising reveal
 - clever solution
-- surprising discovery
+- funny consequence
+- useful discovery
+- emotional resolution
+- satisfying result
 
-Do not stop randomly.
+Do not simply repeat the lesson.
 
 ============================================================
 FACTUAL CONTENT
 ============================================================
 
-If the selected lane is informational:
+For informational stories:
 
-Use only well-established information.
+Use only well-established facts.
 
 Never invent:
 
@@ -1584,34 +2128,38 @@ Never invent:
 - studies
 - scientific findings
 - historical claims
-- expert quotes
+- experts
+- quotes
 - breaking news
 
+If uncertain, choose a safer established fact.
+
 ============================================================
-MYSTERY CONTENT
+MYSTERY
 ============================================================
 
-If the selected lane is Mystery:
+Mystery stories should normally be fictional.
 
-It must be fictional unless reliable factual source
-information is explicitly provided.
+Never fabricate:
 
-Do not fabricate real crimes.
+- real crimes
+- real victims
+- real evidence
+- fake news
+- real-world accusations
 
-Do not fabricate real victims.
-
-Do not fabricate evidence.
+Every clue must connect to the final reveal.
 
 ============================================================
 ORIGINALITY
 ============================================================
 
-Create an original concept.
+Create original concepts.
 
 Do not copy or closely reproduce:
 
 - movies
-- television
+- TV shows
 - YouTube videos
 - TikTok videos
 - creator scripts
@@ -1632,19 +2180,17 @@ Avoid:
 - sexual content
 - dangerous instructions
 - fake news
-- fabricated real-world events
-- misleading political claims
-- impersonation
 - deceptive evidence
+- impersonation
+- misleading political claims
 
-Keep the story suitable for a broad audience.
+Keep the content suitable for a broad audience.
 
 ============================================================
-AI DISCLOSURE
+AI DISCLOSURE REVIEW
 ============================================================
 
-If the planned realistic AI-generated visuals
-could require an AI disclosure review,
+If realistic AI-generated visuals may require an AI disclosure review,
 set:
 
 "aiDisclosureRecommended": true
@@ -1653,40 +2199,45 @@ Otherwise:
 
 false
 
-This is a review flag only.
+This is only a review flag.
 
 Do not claim guaranteed YouTube compliance.
 
 ============================================================
-FINAL SELF-CHECK
+FINAL CREATIVE SELF-CHECK
 ============================================================
 
 Before returning JSON verify:
 
-1. Hook is interesting.
-2. Hook matches the actual story.
-3. One clear protagonist exists.
-4. Character stays consistent.
-5. Goal is clear.
-6. Problem is clear.
-7. Events escalate.
-8. Setback exists.
-9. Turning point exists.
-10. Resolution exists.
-11. Ending has payoff.
-12. Every scene follows the previous scene.
-13. Every visual directly matches its narration.
-14. No random unrelated footage is requested.
-15. Environment continuity is logical.
-16. Story is original.
-17. Story is materially different from previous concepts.
-18. English is natural internationally.
-19. No unsupported facts.
-20. No fake news.
-21. No unsafe instructions.
-22. No deceptive clickbait.
-23. Duration is 20–59 seconds.
-24. Scene count is 6–10.
+1. The topic is specific.
+2. The topic is actually used.
+3. The hook is strong and specific.
+4. The hook is honest.
+5. The hook connects to the story.
+6. One clear protagonist exists.
+7. Character appearance remains consistent.
+8. Goal/question is clear.
+9. Problem is clear.
+10. Escalation exists.
+11. Setback exists.
+12. Turning point changes the situation.
+13. Resolution solves the problem.
+14. Ending provides payoff.
+15. Every scene follows logically.
+16. Every scene contains a real event.
+17. VisualPrompt shows the narrated event.
+18. Important objects remain consistent.
+19. No generic stock-style prompts.
+20. Story is original.
+21. Story is different from previous concepts.
+22. English sounds natural.
+23. Facts are supported by established knowledge.
+24. Mystery does not fabricate real-world events.
+25. No unsafe content.
+26. No deceptive clickbait.
+27. Narration is approximately 50–145 words.
+28. Scene count is 6–10.
+29. Duration is 20–59 seconds.
 
 ============================================================
 OUTPUT
@@ -1694,7 +2245,7 @@ OUTPUT
 
 Return ONLY valid JSON.
 
-Use this exact structure:
+Use exactly this structure:
 
 {
   "title": "",
@@ -1718,7 +2269,10 @@ Use this exact structure:
     "characterContinuityRequired": true,
     "originalityRequired": true,
     "repetitionRiskChecked": true,
-    "metadataRiskChecked": true
+    "metadataRiskChecked": true,
+    "hookQualityChecked": true,
+    "topicSpecificityChecked": true,
+    "payoffChecked": true
   },
   "scenes": [
     {
@@ -1822,10 +2376,13 @@ export async function generateScript(
       variationIndex
     });
 
+  const requestedTopic =
+    normalizeTopic(topic);
+
   console.log(
     `[ScriptEngine] Creating professional Shorts story: ${
-      cleanText(topic) ||
-      'original topic'
+      requestedTopic ||
+      'AI-selected specific topic'
     }`
   );
 
@@ -1851,7 +2408,7 @@ export async function generateScript(
   try {
     rawStory =
       await generateWithGemini(
-        topic,
+        requestedTopic,
         {
           ...options,
           variationIndex
@@ -1877,7 +2434,7 @@ export async function generateScript(
 
     rawStory =
       createFallbackStory(
-        topic,
+        requestedTopic,
         {
           ...options,
           variationIndex
@@ -1894,7 +2451,9 @@ export async function generateScript(
       );
 
     validateStory(
-      story
+      story,
+      requestedTopic,
+      options
     );
   } catch (validationError) {
     console.warn(
@@ -1913,16 +2472,27 @@ export async function generateScript(
 
     story =
       createFallbackStory(
-        topic,
+        requestedTopic,
         {
           ...options,
           variationIndex
         }
       );
 
-    validateStory(
-      story
-    );
+    try {
+      validateStory(
+        story,
+        requestedTopic,
+        options
+      );
+    } catch (fallbackError) {
+      throw new Error(
+        `[ScriptEngine] Fallback story also failed validation: ${
+          fallbackError?.message ||
+          fallbackError
+        }`
+      );
+    }
 
     generatedBy =
       'fallback';
@@ -1942,6 +2512,14 @@ export async function generateScript(
 
   console.log(
     `[ScriptEngine] Scenes: ${story.scenes.length}`
+  );
+
+  console.log(
+    `[ScriptEngine] Narration words: ${
+      wordCount(
+        story.narration
+      )
+    }`
   );
 
   console.log(
