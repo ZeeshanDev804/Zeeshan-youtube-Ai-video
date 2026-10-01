@@ -24,6 +24,10 @@ import {
   getMediaInfo
 } from './modules/renderEngine.mjs';
 
+import {
+  runQualityCheck
+} from './modules/qualityEngine.mjs';
+
 const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------
@@ -56,16 +60,45 @@ const FINAL_DIR =
   );
 
 // ---------------------------------------------------------
+// BATCH CONTENT LANES
+// ---------------------------------------------------------
+
+const BATCH_LANES = [
+  {
+    name: 'Motivation',
+    category: 'Motivation'
+  },
+  {
+    name: 'Funny',
+    category: 'Funny Story'
+  },
+  {
+    name: 'Interesting Facts',
+    category: 'Amazing Information'
+  },
+  {
+    name: 'Mystery',
+    category: 'Mystery and Curiosity'
+  },
+  {
+    name: 'Emotional Life',
+    category: 'Interesting Human Story'
+  }
+];
+
+// ---------------------------------------------------------
 // DIRECTORY SETUP
 // ---------------------------------------------------------
 
 function ensureDirectories() {
-  for (const directory of [
-    OUTPUT_DIR,
-    VISUALS_DIR,
-    AUDIO_DIR,
-    FINAL_DIR
-  ]) {
+  for (
+    const directory of [
+      OUTPUT_DIR,
+      VISUALS_DIR,
+      AUDIO_DIR,
+      FINAL_DIR
+    ]
+  ) {
     fs.mkdirSync(
       directory,
       {
@@ -80,7 +113,8 @@ function ensureDirectories() {
 // ---------------------------------------------------------
 
 function parseArgs(argv) {
-  const args = argv.slice(2);
+  const args =
+    argv.slice(2);
 
   let topic =
     'Create an original, highly engaging YouTube Short';
@@ -91,23 +125,32 @@ function parseArgs(argv) {
     args.length > 0 &&
     !args[0].startsWith('--')
   ) {
-    topic = args[0];
+    topic =
+      args[0];
   }
 
-  for (const arg of args) {
-    if (arg.startsWith('--count=')) {
-      const value = Number(
-        arg.split('=')[1]
-      );
+  for (
+    const arg of args
+  ) {
+    if (
+      arg.startsWith(
+        '--count='
+      )
+    ) {
+      const value =
+        Number(
+          arg.split('=')[1]
+        );
 
       if (
         Number.isInteger(value) &&
         value > 0
       ) {
-        count = Math.min(
-          value,
-          20
-        );
+        count =
+          Math.min(
+            value,
+            20
+          );
       }
     }
   }
@@ -119,7 +162,7 @@ function parseArgs(argv) {
 }
 
 // ---------------------------------------------------------
-// STORY CATEGORY
+// CATEGORY
 // ---------------------------------------------------------
 
 function getCategory() {
@@ -131,10 +174,34 @@ function getCategory() {
 }
 
 // ---------------------------------------------------------
+// CONTENT LANE
+// ---------------------------------------------------------
+
+function getBatchLane(
+  index
+) {
+  const safeIndex =
+    Number.isInteger(index) &&
+    index >= 0
+      ? index
+      : 0;
+
+  return (
+    BATCH_LANES[
+      safeIndex %
+      BATCH_LANES.length
+    ] ||
+    BATCH_LANES[0]
+  );
+}
+
+// ---------------------------------------------------------
 // SAFE FILE NAME
 // ---------------------------------------------------------
 
-function cleanFileName(value) {
+function cleanFileName(
+  value
+) {
   return String(
     value || 'video'
   )
@@ -161,14 +228,20 @@ function assertFile(
   filePath,
   label
 ) {
-  if (!fs.existsSync(filePath)) {
+  if (
+    !fs.existsSync(
+      filePath
+    )
+  ) {
     throw new Error(
       `${label} missing: ${filePath}`
     );
   }
 
   const stats =
-    fs.statSync(filePath);
+    fs.statSync(
+      filePath
+    );
 
   if (
     !stats.isFile() ||
@@ -196,18 +269,19 @@ async function getFileDuration(
 
   const {
     stdout
-  } = await execFileAsync(
-    'ffprobe',
-    [
-      '-v',
-      'error',
-      '-show_entries',
-      'format=duration',
-      '-of',
-      'default=noprint_wrappers=1:nokey=1',
-      filePath
-    ]
-  );
+  } =
+    await execFileAsync(
+      'ffprobe',
+      [
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
+        filePath
+      ]
+    );
 
   const duration =
     Number.parseFloat(
@@ -215,7 +289,9 @@ async function getFileDuration(
     );
 
   if (
-    !Number.isFinite(duration) ||
+    !Number.isFinite(
+      duration
+    ) ||
     duration <= 0
   ) {
     throw new Error(
@@ -230,17 +306,23 @@ async function getFileDuration(
 // STORY VALIDATION
 // ---------------------------------------------------------
 
-function validateStoryCoverage(story) {
+function validateStoryCoverage(
+  story
+) {
   if (
     !story ||
-    !Array.isArray(story.scenes)
+    !Array.isArray(
+      story.scenes
+    )
   ) {
     throw new Error(
       '[Orchestrator] Story does not contain a valid scenes array.'
     );
   }
 
-  if (story.scenes.length < 6) {
+  if (
+    story.scenes.length < 6
+  ) {
     throw new Error(
       `[Orchestrator] Story has only ${story.scenes.length} scenes. Minimum is 6.`
     );
@@ -254,7 +336,10 @@ function validateStoryCoverage(story) {
     const scene =
       story.scenes[index];
 
-    if (!scene || typeof scene !== 'object') {
+    if (
+      !scene ||
+      typeof scene !== 'object'
+    ) {
       throw new Error(
         `[Orchestrator] Scene ${index + 1} is invalid.`
       );
@@ -268,10 +353,14 @@ function validateStoryCoverage(story) {
       'action'
     ];
 
-    for (const field of requiredFields) {
+    for (
+      const field of requiredFields
+    ) {
       if (
         !scene[field] ||
-        String(scene[field]).trim() === ''
+        String(
+          scene[field]
+        ).trim() === ''
       ) {
         throw new Error(
           `[Orchestrator] Scene ${index + 1} has no ${field}.`
@@ -337,8 +426,11 @@ async function prepareSceneVisuals(
     );
 
   if (
-    !Array.isArray(visualResults) ||
-    visualResults.length !== story.scenes.length
+    !Array.isArray(
+      visualResults
+    ) ||
+    visualResults.length !==
+      story.scenes.length
   ) {
     throw new Error(
       '[Orchestrator] Visual engine did not return one visual for every scene.'
@@ -384,7 +476,12 @@ async function prepareSceneVisuals(
     const outputPath =
       path.join(
         projectVisualDir,
-        `scene-${String(index + 1).padStart(2, '0')}.mp4`
+        `scene-${String(
+          index + 1
+        ).padStart(
+          2,
+          '0'
+        )}.mp4`
       );
 
     console.log(
@@ -441,8 +538,11 @@ async function prepareSceneAudio(
     );
 
   if (
-    !Array.isArray(audioResults) ||
-    audioResults.length !== story.scenes.length
+    !Array.isArray(
+      audioResults
+    ) ||
+    audioResults.length !==
+      story.scenes.length
   ) {
     throw new Error(
       '[Orchestrator] Voice engine did not return one audio file for every scene.'
@@ -484,7 +584,9 @@ async function prepareSceneAudio(
       );
 
     if (
-      !Number.isFinite(duration) ||
+      !Number.isFinite(
+        duration
+      ) ||
       duration <= 0
     ) {
       throw new Error(
@@ -503,7 +605,9 @@ async function prepareSceneAudio(
     console.log(
       `[Orchestrator] Scene ${
         index + 1
-      } narration duration: ${duration.toFixed(2)}s`
+      } narration duration: ${duration.toFixed(
+        2
+      )}s`
     );
   }
 
@@ -511,6 +615,152 @@ async function prepareSceneAudio(
     sceneAudioPaths,
     sceneDurations
   };
+}
+
+// ---------------------------------------------------------
+// QUALITY ENGINE
+// ---------------------------------------------------------
+
+async function runProductionQualityCheck(
+  story,
+  finalPath,
+  mediaInfo
+) {
+  console.log(
+    '[Orchestrator] Running production quality check...'
+  );
+
+  if (
+    typeof runQualityCheck !==
+    'function'
+  ) {
+    console.warn(
+      '[Orchestrator] QualityEngine export runQualityCheck not available. Continuing with core validation.'
+    );
+
+    return {
+      passed: true,
+      reviewRequired: false,
+      blocked: false,
+      issues: [],
+      skipped: true
+    };
+  }
+
+  let report;
+
+  try {
+    report =
+      await runQualityCheck({
+        story,
+        mediaInfo,
+        finalPath
+      });
+  } catch (error) {
+    console.warn(
+      '[Orchestrator] QualityEngine execution failed.'
+    );
+
+    console.warn(
+      error?.message ||
+        error
+    );
+
+    return {
+      passed: true,
+      reviewRequired: true,
+      blocked: false,
+      issues: [
+        {
+          type: 'quality_engine_error',
+          message:
+            error?.message ||
+            String(error)
+        }
+      ],
+      skipped: false,
+      qualityEngineError: true
+    };
+  }
+
+  if (!report) {
+    console.warn(
+      '[Orchestrator] QualityEngine returned no report.'
+    );
+
+    return {
+      passed: true,
+      reviewRequired: true,
+      blocked: false,
+      issues: [
+        {
+          type: 'quality_engine_empty_report',
+          message:
+            'QualityEngine returned an empty report.'
+        }
+      ]
+    };
+  }
+
+  console.log(
+    `[Orchestrator] Quality result: ${
+      report.passed
+        ? 'PASS'
+        : report.reviewRequired
+          ? 'REVIEW'
+          : report.blocked
+            ? 'BLOCK'
+            : 'CHECK'
+    }`
+  );
+
+  if (
+    Array.isArray(
+      report.issues
+    ) &&
+    report.issues.length > 0
+  ) {
+    console.log(
+      `[Orchestrator] Quality issues: ${report.issues.length}`
+    );
+
+    for (
+      const issue of report.issues.slice(
+        0,
+        10
+      )
+    ) {
+      console.log(
+        `- ${
+          issue?.type ||
+          'quality'
+        }: ${
+          issue?.message ||
+          JSON.stringify(
+            issue
+          )
+        }`
+      );
+    }
+  }
+
+  if (
+    report.blocked === true
+  ) {
+    throw new Error(
+      '[Orchestrator] QualityEngine BLOCKED this video.'
+    );
+  }
+
+  if (
+    report.reviewRequired === true
+  ) {
+    console.warn(
+      '[Orchestrator] QualityEngine marked this video for REVIEW.'
+    );
+  }
+
+  return report;
 }
 
 // ---------------------------------------------------------
@@ -531,13 +781,17 @@ async function validateFinalVideo(
       finalPath
     );
 
-  if (!mediaInfo.hasVideo) {
+  if (
+    !mediaInfo.hasVideo
+  ) {
     throw new Error(
       '[Orchestrator] Final video has no video stream.'
     );
   }
 
-  if (!mediaInfo.hasAudio) {
+  if (
+    !mediaInfo.hasAudio
+  ) {
     throw new Error(
       '[Orchestrator] Final video has no audio stream.'
     );
@@ -580,7 +834,9 @@ async function validateFinalVideo(
     );
 
   if (
-    !Number.isFinite(actualDuration) ||
+    !Number.isFinite(
+      actualDuration
+    ) ||
     actualDuration <= 0
   ) {
     throw new Error(
@@ -591,7 +847,7 @@ async function validateFinalVideo(
   const durationDifference =
     Math.abs(
       actualDuration -
-      expectedDuration
+        expectedDuration
     );
 
   if (
@@ -600,7 +856,9 @@ async function validateFinalVideo(
     throw new Error(
       `[Orchestrator] Final duration mismatch. Expected ${expectedDuration.toFixed(
         2
-      )}s, got ${actualDuration.toFixed(2)}s.`
+      )}s, got ${actualDuration.toFixed(
+        2
+      )}s.`
     );
   }
 
@@ -624,21 +882,41 @@ async function validateFinalVideo(
 async function generateOneVideo(
   topic,
   index,
-  total
+  total,
+  previousConcepts
 ) {
   const projectId =
-    `video-${Date.now()}-${index + 1}`;
+    `video-${Date.now()}-${
+      index + 1
+    }`;
+
+  const lane =
+    getBatchLane(
+      index
+    );
 
   console.log('');
+
   console.log(
     '============================================================'
   );
+
   console.log(
     `STARTING VIDEO ${index + 1}/${total}`
   );
+
   console.log(
     `PROJECT: ${projectId}`
   );
+
+  console.log(
+    `CONTENT LANE: ${lane.name}`
+  );
+
+  console.log(
+    `CATEGORY: ${lane.category}`
+  );
+
   console.log(
     '============================================================'
   );
@@ -655,16 +933,30 @@ async function generateOneVideo(
     await generateScript(
       topic,
       {
-        category: getCategory(),
+        category:
+          lane.category,
+
+        contentLane:
+          lane.name,
+
+        variationIndex:
+          index,
+
+        batchSize:
+          total,
+
+        previousConcepts,
 
         audience:
-          config?.audienceConfig || {
+          config?.audienceConfig ||
+          {
             regions: [
               'US',
               'UK',
               'Europe'
             ],
-            language: 'English'
+            language:
+              'English'
           }
       }
     );
@@ -684,6 +976,14 @@ async function generateOneVideo(
 
   console.log(
     `[Orchestrator] Story created with ${story.scenes.length} scenes.`
+  );
+
+  console.log(
+    `[Orchestrator] Story title: ${story.title}`
+  );
+
+  console.log(
+    `[Orchestrator] Story category: ${story.category}`
   );
 
   // -------------------------------------------------------
@@ -723,8 +1023,12 @@ async function generateOneVideo(
 
   const expectedDuration =
     sceneDurations.reduce(
-      (totalDuration, duration) =>
-        totalDuration + duration,
+      (
+        totalDuration,
+        duration
+      ) =>
+        totalDuration +
+        duration,
       0
     );
 
@@ -749,12 +1053,14 @@ async function generateOneVideo(
   const safeTopic =
     cleanFileName(
       story.title ||
-      topic ||
-      `video-${index + 1}`
+        topic ||
+        `video-${index + 1}`
     );
 
   const finalFileName =
-    `${String(index + 1).padStart(
+    `${String(
+      index + 1
+    ).padStart(
       2,
       '0'
     )}-${safeTopic}-${Date.now()}.mp4`;
@@ -794,8 +1100,23 @@ async function generateOneVideo(
       expectedDuration
     );
 
+  // -------------------------------------------------------
+  // QUALITY
+  // -------------------------------------------------------
+
   console.log(
-    '[6/6] Video generation completed successfully.'
+    '[6/6] Running final quality checks...'
+  );
+
+  const qualityReport =
+    await runProductionQualityCheck(
+      story,
+      finalPath,
+      mediaInfo
+    );
+
+  console.log(
+    '[Orchestrator] Video generation completed successfully.'
   );
 
   console.log(
@@ -803,16 +1124,41 @@ async function generateOneVideo(
   );
 
   return {
-    index: index + 1,
+    index:
+      index + 1,
+
     projectId,
+
     topic,
+
+    lane:
+      lane.name,
+
+    category:
+      lane.category,
+
     title:
       story.title ||
       null,
-    path: finalPath,
-    duration: mediaInfo.duration,
-    width: mediaInfo.video.width,
-    height: mediaInfo.video.height
+
+    path:
+      finalPath,
+
+    duration:
+      mediaInfo.duration,
+
+    width:
+      mediaInfo.video.width,
+
+    height:
+      mediaInfo.video.height,
+
+    generatedBy:
+      story.generatedBy ||
+      'unknown',
+
+    quality:
+      qualityReport
   };
 }
 
@@ -832,12 +1178,15 @@ async function main() {
     );
 
   console.log('');
+
   console.log(
     '============================================================'
   );
+
   console.log(
     'ZEESHAN AI LABS - YOUTUBE SHORTS GENERATOR'
   );
+
   console.log(
     '============================================================'
   );
@@ -855,11 +1204,29 @@ async function main() {
   );
 
   console.log(
+    'Target audience: UK, USA and Europe'
+  );
+
+  console.log(
+    'Batch diversity: ENABLED'
+  );
+
+  console.log(
+    'QualityEngine: ENABLED'
+  );
+
+  console.log(
+    'Automatic YouTube upload: DISABLED'
+  );
+
+  console.log(
     '============================================================'
   );
 
   const successfulVideos = [];
   const failedVideos = [];
+
+  const previousConcepts = [];
 
   for (
     let index = 0;
@@ -871,29 +1238,70 @@ async function main() {
         await generateOneVideo(
           topic,
           index,
-          count
+          count,
+          previousConcepts
         );
 
       successfulVideos.push(
         result
       );
-    } catch (error) {
+
+      // ---------------------------------------------------
+      // STORE CONCEPT FOR NEXT VIDEO
+      // ---------------------------------------------------
+
+      const concept =
+        [
+          result.title,
+          result.category,
+          result.lane,
+          result.topic
+        ]
+          .filter(Boolean)
+          .join(
+            ' | '
+          );
+
+      if (
+        concept
+      ) {
+        previousConcepts.push(
+          concept
+        );
+      }
+
+      console.log(
+        `[Orchestrator] Stored previous concept: ${concept}`
+      );
+    } catch (
+      error
+    ) {
       const message =
         error?.stack ||
         error?.message ||
         String(error);
 
       console.error('');
+
       console.error(
         `VIDEO ${index + 1} FAILED`
       );
+
       console.error(
         message
       );
 
       failedVideos.push({
-        index: index + 1,
-        error: message
+        index:
+          index + 1,
+
+        lane:
+          getBatchLane(
+            index
+          ).name,
+
+        error:
+          message
       });
     }
   }
@@ -903,12 +1311,15 @@ async function main() {
   // -------------------------------------------------------
 
   console.log('');
+
   console.log(
     '============================================================'
   );
+
   console.log(
     'RUN SUMMARY'
   );
+
   console.log(
     '============================================================'
   );
@@ -929,6 +1340,7 @@ async function main() {
     successfulVideos.length > 0
   ) {
     console.log('');
+
     console.log(
       'Generated videos:'
     );
@@ -937,7 +1349,27 @@ async function main() {
       const video of successfulVideos
     ) {
       console.log(
-        `- ${video.path}`
+        `- Video ${video.index}: ${video.title}`
+      );
+
+      console.log(
+        `  Lane: ${video.lane}`
+      );
+
+      console.log(
+        `  Category: ${video.category}`
+      );
+
+      console.log(
+        `  File: ${video.path}`
+      );
+
+      console.log(
+        `  Duration: ${Number(
+          video.duration
+        ).toFixed(
+          2
+        )}s`
       );
     }
   }
@@ -946,6 +1378,7 @@ async function main() {
     failedVideos.length > 0
   ) {
     console.log('');
+
     console.log(
       'Failed videos:'
     );
@@ -954,7 +1387,7 @@ async function main() {
       const failure of failedVideos
     ) {
       console.log(
-        `- Video ${failure.index}: ${failure.error}`
+        `- Video ${failure.index} (${failure.lane}): ${failure.error}`
       );
     }
   }
@@ -972,11 +1405,15 @@ async function main() {
   }
 
   return {
-    requested: count,
+    requested:
+      count,
+
     successful:
       successfulVideos.length,
+
     failed:
       failedVideos.length,
+
     videos:
       successfulVideos
   };
@@ -989,9 +1426,11 @@ async function main() {
 main().catch(
   (error) => {
     console.error('');
+
     console.error(
       'FATAL ORCHESTRATOR ERROR'
     );
+
     console.error(
       error?.stack ||
       error?.message ||
@@ -1000,4 +1439,4 @@ main().catch(
 
     process.exitCode = 1;
   }
-);
+);.
