@@ -1439,4 +1439,4 @@ main().catch(
 
     process.exitCode = 1;
   }
-);.
+);
