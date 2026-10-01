@@ -24,6 +24,10 @@ function assertValidVolume(volume) {
 
 async function runFFmpeg(args) {
   try {
+    console.log(
+      `[MusicEngine] FFmpeg args: ${JSON.stringify(args)}`
+    );
+
     await execFileAsync("ffmpeg", args, {
       maxBuffer: 1024 * 1024 * 20
     });
@@ -34,7 +38,9 @@ async function runFFmpeg(args) {
       error?.message ||
       "Unknown FFmpeg error";
 
-    throw new Error(`[MusicEngine] FFmpeg failed: ${details}`);
+    throw new Error(
+      `[MusicEngine] FFmpeg failed: ${details}`
+    );
   }
 }
 
@@ -48,10 +54,13 @@ async function runFFprobe(args) {
   } catch (error) {
     const details =
       error?.stderr ||
+      error?.stdout ||
       error?.message ||
       "Unknown FFprobe error";
 
-    throw new Error(`[MusicEngine] FFprobe failed: ${details}`);
+    throw new Error(
+      `[MusicEngine] FFprobe failed: ${details}`
+    );
   }
 }
 
@@ -80,13 +89,121 @@ export function validateMusicFile(musicPath = DEFAULT_MUSIC_PATH) {
     );
   }
 
+  console.log(
+    `[MusicEngine] Background music size: ${stats.size} bytes`
+  );
+
   return true;
+}
+
+async function isMusicFileReadable(musicPath) {
+  try {
+    validateMusicFile(musicPath);
+
+    const output = await runFFprobe([
+      "-v",
+      "error",
+      "-select_streams",
+      "a:0",
+      "-show_entries",
+      "stream=codec_name,duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=0",
+      musicPath
+    ]);
+
+    if (!output || !output.includes("codec_name=")) {
+      console.warn(
+        `[MusicEngine] FFprobe could not detect a valid audio stream`
+      );
+
+      return false;
+    }
+
+    console.log(
+      `[MusicEngine] Background music FFprobe validation passed`
+    );
+
+    return true;
+  } catch (error) {
+    console.warn(
+      `[MusicEngine] Background music validation failed: ${error.message}`
+    );
+
+    return false;
+  }
+}
+
+async function createSilentMusic(duration, outputPath) {
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(
+      `[MusicEngine] Invalid silent music duration: ${duration}`
+    );
+  }
+
+  fs.mkdirSync(path.dirname(outputPath), {
+    recursive: true
+  });
+
+  console.warn(
+    `[MusicEngine] Creating silent background music: ${duration.toFixed(3)}s`
+  );
+
+  await runFFmpeg([
+    "-y",
+
+    "-f",
+    "lavfi",
+
+    "-i",
+    "anullsrc=channel_layout=stereo:sample_rate=48000",
+
+    "-t",
+    duration.toFixed(3),
+
+    "-vn",
+
+    "-c:a",
+    "aac",
+
+    "-b:a",
+    "192k",
+
+    "-ar",
+    "48000",
+
+    outputPath
+  ]);
+
+  if (!fs.existsSync(outputPath)) {
+    throw new Error(
+      `[MusicEngine] Silent background music was not created: ${outputPath}`
+    );
+  }
+
+  const stats = fs.statSync(outputPath);
+
+  if (stats.size <= 0) {
+    throw new Error(
+      `[MusicEngine] Silent background music is empty: ${outputPath}`
+    );
+  }
+
+  return outputPath;
 }
 
 export async function getMusicDuration(
   musicPath = DEFAULT_MUSIC_PATH
 ) {
   validateMusicFile(musicPath);
+
+  const readable = await isMusicFileReadable(musicPath);
+
+  if (!readable) {
+    throw new Error(
+      `[MusicEngine] Background music is not a valid readable audio file: ${musicPath}`
+    );
+  }
 
   const output = await runFFprobe([
     "-v",
@@ -126,27 +243,52 @@ export async function prepareBackgroundMusic(
   const volume =
     options.volume ?? DEFAULT_VOLUME;
 
-  validateMusicFile(musicPath);
   assertValidVolume(volume);
 
-  const outputDir = path.dirname(outputPath);
-
-  fs.mkdirSync(outputDir, {
+  fs.mkdirSync(path.dirname(outputPath), {
     recursive: true
   });
 
   console.log(
-    `[MusicEngine] Preparing background music: ${duration.toFixed(2)}s`
+    `[MusicEngine] Preparing background music: ${duration.toFixed(3)}s`
+  );
+
+  console.log(
+    `[MusicEngine] Source music: ${musicPath}`
   );
 
   console.log(
     `[MusicEngine] Music volume: ${volume}`
   );
 
-  await runFFmpeg([
+  /*
+   * IMPORTANT:
+   * First verify that the source file is actually readable.
+   * A file can exist and still be a corrupt MP3.
+   */
+  const readable = await isMusicFileReadable(musicPath);
+
+  if (!readable) {
+    console.warn(
+      `[MusicEngine] Source background music is invalid or corrupt.`
+    );
+
+    console.warn(
+      `[MusicEngine] Using exact-duration silent background track instead.`
+    );
+
+    return createSilentMusic(
+      duration,
+      outputPath
+    );
+  }
+
+  const args = [
     "-y",
+
     "-stream_loop",
     "-1",
+
     "-i",
     musicPath,
 
@@ -159,7 +301,6 @@ export async function prepareBackgroundMusic(
     [
       `volume=${volume}`,
       "aresample=48000",
-      "apad",
       `atrim=duration=${duration.toFixed(3)}`,
       "asetpts=N/SR/TB"
     ].join(","),
@@ -170,12 +311,48 @@ export async function prepareBackgroundMusic(
     "-b:a",
     "192k",
 
+    "-ar",
+    "48000",
+
     outputPath
-  ]);
+  ];
+
+  console.log(
+    `[MusicEngine] FFmpeg command: ffmpeg ${args.join(" ")}`
+  );
+
+  try {
+    await runFFmpeg(args);
+  } catch (error) {
+    console.warn(
+      `[MusicEngine] Background music processing failed.`
+    );
+
+    console.warn(
+      `[MusicEngine] Reason: ${error.message}`
+    );
+
+    console.warn(
+      `[MusicEngine] Creating exact-duration silent background track.`
+    );
+
+    return createSilentMusic(
+      duration,
+      outputPath
+    );
+  }
 
   if (!fs.existsSync(outputPath)) {
     throw new Error(
       `[MusicEngine] Prepared music was not created: ${outputPath}`
+    );
+  }
+
+  const stats = fs.statSync(outputPath);
+
+  if (stats.size <= 0) {
+    throw new Error(
+      `[MusicEngine] Prepared music is empty: ${outputPath}`
     );
   }
 
@@ -214,7 +391,7 @@ export async function mixNarrationAndMusic(
     `[MusicEngine] Mixing narration + background music`
   );
 
-  await runFFmpeg([
+  const args = [
     "-y",
 
     "-i",
@@ -244,11 +421,25 @@ export async function mixNarrationAndMusic(
     "48000",
 
     outputPath
-  ]);
+  ];
+
+  console.log(
+    `[MusicEngine] Mix FFmpeg command: ffmpeg ${args.join(" ")}`
+  );
+
+  await runFFmpeg(args);
 
   if (!fs.existsSync(outputPath)) {
     throw new Error(
       `[MusicEngine] Mixed audio was not created: ${outputPath}`
+    );
+  }
+
+  const stats = fs.statSync(outputPath);
+
+  if (stats.size <= 0) {
+    throw new Error(
+      `[MusicEngine] Mixed audio is empty: ${outputPath}`
     );
   }
 
