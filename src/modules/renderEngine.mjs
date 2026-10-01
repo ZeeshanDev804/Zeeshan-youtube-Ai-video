@@ -1,38 +1,37 @@
-import fs from "fs";
-import path from "path";
-import { execFile } from "child_process";
-import { promisify } from "util";
-import config from "../config/index.mjs";
+import fs from 'fs';
+import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+import { config } from '../config/index.mjs';
 
 const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------
-// HARD-CODED STABLE VIDEO SETTINGS
+// STABLE VIDEO SETTINGS
 // ---------------------------------------------------------
 
-const VIDEO_CODEC = "libx264";
-const CRF = "23";
-const PRESET = "medium";
-const PIX_FMT = "yuv420p";
+const VIDEO_CODEC = 'libx264';
+const CRF = '23';
+const PRESET = 'medium';
+const PIX_FMT = 'yuv420p';
 
 const VIDEO_WIDTH = 1080;
 const VIDEO_HEIGHT = 1920;
 const VIDEO_FPS = 30;
 
 const MIN_DURATION = Number(
-  config?.qualityConfig?.minDuration ??
   config?.videoConfig?.minDuration ??
   20
 );
 
 const MAX_DURATION = Number(
-  config?.qualityConfig?.maxDuration ??
   config?.videoConfig?.maxDuration ??
   59
 );
 
 // ---------------------------------------------------------
-// BACKGROUND MUSIC SETTINGS
+// BACKGROUND MUSIC
 // ---------------------------------------------------------
 
 const MUSIC_VOLUME = Number(
@@ -42,16 +41,16 @@ const MUSIC_VOLUME = Number(
 
 const DEFAULT_MUSIC_PATH = path.resolve(
   process.env.BACKGROUND_MUSIC_PATH ||
-  "output/music/background.mp3"
+  'output/music/background.mp3'
 );
 
 // ---------------------------------------------------------
-// HELPERS
+// FILE HELPERS
 // ---------------------------------------------------------
 
 function assertFile(
   filePath,
-  label = "File"
+  label = 'File'
 ) {
   if (!filePath) {
     throw new Error(
@@ -80,17 +79,13 @@ function assertFile(
   }
 }
 
+// ---------------------------------------------------------
+// FFMPEG
+// ---------------------------------------------------------
+
 async function runFFmpeg(args) {
   console.log(
-    `[RenderEngine] FFmpeg command: ffmpeg ${args.join(" ")}`
-  );
-
-  console.log(
-    `[RenderEngine] CWD: ${process.cwd()}`
-  );
-
-  console.log(
-    `[RenderEngine] FFmpeg args: ${JSON.stringify(args)}`
+    `[RenderEngine] FFmpeg command: ffmpeg ${args.join(' ')}`
   );
 
   try {
@@ -98,7 +93,7 @@ async function runFFmpeg(args) {
       stdout,
       stderr
     } = await execFileAsync(
-      "ffmpeg",
+      'ffmpeg',
       args,
       {
         maxBuffer: 20 * 1024 * 1024
@@ -120,14 +115,14 @@ async function runFFmpeg(args) {
   } catch (error) {
     const stderr =
       error?.stderr ||
-      "";
+      '';
 
     const stdout =
       error?.stdout ||
-      "";
+      '';
 
     console.error(
-      "[RenderEngine] FFmpeg failed."
+      '[RenderEngine] FFmpeg failed.'
     );
 
     if (stdout) {
@@ -147,13 +142,17 @@ async function runFFmpeg(args) {
   }
 }
 
+// ---------------------------------------------------------
+// FFPROBE
+// ---------------------------------------------------------
+
 async function runFFprobe(args) {
   try {
     const {
       stdout,
       stderr
     } = await execFileAsync(
-      "ffprobe",
+      'ffprobe',
       args,
       {
         maxBuffer: 10 * 1024 * 1024
@@ -167,7 +166,7 @@ async function runFFprobe(args) {
   } catch (error) {
     const stderr =
       error?.stderr ||
-      "";
+      '';
 
     throw new Error(
       `[RenderEngine] FFprobe failed:\n${
@@ -185,23 +184,23 @@ async function runFFprobe(args) {
 async function getMediaInfo(filePath) {
   assertFile(
     filePath,
-    "Media file"
+    'Media file'
   );
 
   const {
     stdout
   } = await runFFprobe([
-    "-v",
-    "error",
+    '-v',
+    'error',
 
-    "-show_entries",
-    "format=duration",
+    '-show_entries',
+    'format=duration',
 
-    "-show_entries",
-    "stream=index,codec_type,codec_name,width,height,r_frame_rate",
+    '-show_entries',
+    'stream=index,codec_type,codec_name,width,height,r_frame_rate',
 
-    "-of",
-    "json",
+    '-of',
+    'json',
 
     filePath
   ]);
@@ -229,13 +228,13 @@ async function getMediaInfo(filePath) {
   const videoStream =
     streams.find(
       stream =>
-        stream.codec_type === "video"
+        stream.codec_type === 'video'
     ) || null;
 
   const audioStream =
     streams.find(
       stream =>
-        stream.codec_type === "audio"
+        stream.codec_type === 'audio'
     ) || null;
 
   return {
@@ -245,13 +244,11 @@ async function getMediaInfo(filePath) {
 
     streams,
 
-    hasVideo: Boolean(
-      videoStream
-    ),
+    hasVideo:
+      Boolean(videoStream),
 
-    hasAudio: Boolean(
-      audioStream
-    ),
+    hasAudio:
+      Boolean(audioStream),
 
     video: videoStream
       ? {
@@ -288,7 +285,7 @@ async function getMediaInfo(filePath) {
 }
 
 // ---------------------------------------------------------
-// NORMALIZE ONE VIDEO
+// NORMALIZE VIDEO
 // ---------------------------------------------------------
 
 async function normalizeVideo(
@@ -298,7 +295,7 @@ async function normalizeVideo(
 ) {
   assertFile(
     inputPath,
-    "Scene video"
+    'Scene video'
   );
 
   const requestedDuration =
@@ -315,62 +312,51 @@ async function normalizeVideo(
     );
   }
 
-  const outputDir =
-    path.dirname(outputPath);
-
   fs.mkdirSync(
-    outputDir,
+    path.dirname(outputPath),
     {
       recursive: true
     }
   );
 
-  console.log(
-    `[RenderEngine] Normalizing video: ${inputPath}`
-  );
-
-  console.log(
-    `[RenderEngine] Target duration: ${requestedDuration.toFixed(3)}s`
-  );
-
   await runFFmpeg([
-    "-y",
+    '-y',
 
-    "-stream_loop",
-    "-1",
+    '-stream_loop',
+    '-1',
 
-    "-i",
+    '-i',
     inputPath,
 
-    "-t",
+    '-t',
     requestedDuration.toFixed(3),
 
-    "-vf",
+    '-vf',
     `scale=${VIDEO_WIDTH}:${VIDEO_HEIGHT}:force_original_aspect_ratio=increase,crop=${VIDEO_WIDTH}:${VIDEO_HEIGHT},setsar=1,fps=${VIDEO_FPS},format=${PIX_FMT}`,
 
-    "-an",
+    '-an',
 
-    "-c:v",
+    '-c:v',
     VIDEO_CODEC,
 
-    "-pix_fmt",
+    '-pix_fmt',
     PIX_FMT,
 
-    "-preset",
+    '-preset',
     PRESET,
 
-    "-crf",
+    '-crf',
     CRF,
 
-    "-movflags",
-    "+faststart",
+    '-movflags',
+    '+faststart',
 
     outputPath
   ]);
 
   assertFile(
     outputPath,
-    "Normalized video"
+    'Normalized video'
   );
 
   const info =
@@ -421,13 +407,13 @@ async function combineVideos(
     videoPaths.length === 0
   ) {
     throw new Error(
-      "[RenderEngine] No scene videos were provided."
+      '[RenderEngine] No scene videos were provided.'
     );
   }
 
   if (!Array.isArray(durations)) {
     throw new Error(
-      "[RenderEngine] Scene durations must be an array."
+      '[RenderEngine] Scene durations must be an array.'
     );
   }
 
@@ -447,10 +433,6 @@ async function combineVideos(
     }
   );
 
-  console.log(
-    `[RenderEngine] Combining ${videoPaths.length} scene videos...`
-  );
-
   const normalizedPaths = [];
 
   for (
@@ -458,19 +440,16 @@ async function combineVideos(
     i < videoPaths.length;
     i += 1
   ) {
-    const inputPath =
-      videoPaths[i];
-
     const normalizedPath =
       path.join(
         workingDirectory,
         `normalized-scene-${String(
           i + 1
-        ).padStart(2, "0")}.mp4`
+        ).padStart(2, '0')}.mp4`
       );
 
     await normalizeVideo(
-      inputPath,
+      videoPaths[i],
       normalizedPath,
       durations[i]
     );
@@ -481,7 +460,7 @@ async function combineVideos(
   }
 
   const args = [
-    "-y"
+    '-y'
   ];
 
   for (
@@ -489,7 +468,7 @@ async function combineVideos(
       normalizedPaths
   ) {
     args.push(
-      "-i",
+      '-i',
       videoPath
     );
   }
@@ -512,44 +491,44 @@ async function combineVideos(
         (_, i) =>
           `[v${i}]`
       )
-      .join("");
+      .join('');
 
   const filterComplex = [
-    labels.join(";"),
+    labels.join(';'),
 
     `${inputLabels}concat=n=${normalizedPaths.length}:v=1:a=0[outv]`
-  ].join(";");
+  ].join(';');
 
   const combinedPath =
     path.join(
       workingDirectory,
-      "combined-video.mp4"
+      'combined-video.mp4'
     );
 
   args.push(
-    "-filter_complex",
+    '-filter_complex',
     filterComplex,
 
-    "-map",
-    "[outv]",
+    '-map',
+    '[outv]',
 
-    "-c:v",
+    '-c:v',
     VIDEO_CODEC,
 
-    "-pix_fmt",
+    '-pix_fmt',
     PIX_FMT,
 
-    "-preset",
+    '-preset',
     PRESET,
 
-    "-crf",
+    '-crf',
     CRF,
 
-    "-r",
+    '-r',
     String(VIDEO_FPS),
 
-    "-movflags",
-    "+faststart",
+    '-movflags',
+    '+faststart',
 
     combinedPath
   );
@@ -558,7 +537,7 @@ async function combineVideos(
 
   assertFile(
     combinedPath,
-    "Combined video"
+    'Combined video'
   );
 
   const info =
@@ -568,24 +547,9 @@ async function combineVideos(
 
   if (!info.hasVideo) {
     throw new Error(
-      "[RenderEngine] Combined video contains no video stream."
+      '[RenderEngine] Combined video contains no video stream.'
     );
   }
-
-  if (
-    info.video.width !==
-      VIDEO_WIDTH ||
-    info.video.height !==
-      VIDEO_HEIGHT
-  ) {
-    throw new Error(
-      `[RenderEngine] Combined video resolution is ${info.video.width}x${info.video.height}, expected ${VIDEO_WIDTH}x${VIDEO_HEIGHT}.`
-    );
-  }
-
-  console.log(
-    `[RenderEngine] Combined video duration: ${info.duration.toFixed(3)}s`
-  );
 
   return combinedPath;
 }
@@ -604,13 +568,13 @@ async function createTimedAudio(
     audioPaths.length === 0
   ) {
     throw new Error(
-      "[RenderEngine] No scene audio files were provided."
+      '[RenderEngine] No scene audio files were provided.'
     );
   }
 
   if (!Array.isArray(durations)) {
     throw new Error(
-      "[RenderEngine] Audio durations must be an array."
+      '[RenderEngine] Audio durations must be an array.'
     );
   }
 
@@ -628,10 +592,6 @@ async function createTimedAudio(
     {
       recursive: true
     }
-  );
-
-  console.log(
-    `[RenderEngine] Preparing ${audioPaths.length} timed narration tracks...`
   );
 
   const normalizedAudioPaths = [];
@@ -666,29 +626,29 @@ async function createTimedAudio(
         workingDirectory,
         `scene-audio-${String(
           i + 1
-        ).padStart(2, "0")}.m4a`
+        ).padStart(2, '0')}.m4a`
       );
 
     await runFFmpeg([
-      "-y",
+      '-y',
 
-      "-i",
+      '-i',
       audioPath,
 
-      "-af",
+      '-af',
       `aresample=48000,apad=pad_dur=${duration.toFixed(3)},atrim=duration=${duration.toFixed(3)}`,
 
-      "-ar",
-      "48000",
+      '-ar',
+      '48000',
 
-      "-ac",
-      "2",
+      '-ac',
+      '2',
 
-      "-c:a",
-      "aac",
+      '-c:a',
+      'aac',
 
-      "-b:a",
-      "192k",
+      '-b:a',
+      '192k',
 
       normalizedAudioPath
     ]);
@@ -704,7 +664,7 @@ async function createTimedAudio(
   }
 
   const args = [
-    "-y"
+    '-y'
   ];
 
   for (
@@ -712,7 +672,7 @@ async function createTimedAudio(
       normalizedAudioPaths
   ) {
     args.push(
-      "-i",
+      '-i',
       audioPath
     );
   }
@@ -723,7 +683,7 @@ async function createTimedAudio(
         (_, i) =>
           `[${i}:a]`
       )
-      .join("");
+      .join('');
 
   const filterComplex =
     `${audioLabels}concat=n=${normalizedAudioPaths.length}:v=0:a=1[outa]`;
@@ -731,27 +691,27 @@ async function createTimedAudio(
   const outputPath =
     path.join(
       workingDirectory,
-      "complete-narration.m4a"
+      'complete-narration.m4a'
     );
 
   args.push(
-    "-filter_complex",
+    '-filter_complex',
     filterComplex,
 
-    "-map",
-    "[outa]",
+    '-map',
+    '[outa]',
 
-    "-ar",
-    "48000",
+    '-ar',
+    '48000',
 
-    "-ac",
-    "2",
+    '-ac',
+    '2',
 
-    "-c:a",
-    "aac",
+    '-c:a',
+    'aac',
 
-    "-b:a",
-    "192k",
+    '-b:a',
+    '192k',
 
     outputPath
   );
@@ -760,14 +720,14 @@ async function createTimedAudio(
 
   assertFile(
     outputPath,
-    "Complete narration"
+    'Complete narration'
   );
 
   return outputPath;
 }
 
 // ---------------------------------------------------------
-// BACKGROUND MUSIC VALIDATION
+// MUSIC PATH
 // ---------------------------------------------------------
 
 function getBackgroundMusicPath(
@@ -787,14 +747,7 @@ function validateMusicVolume() {
   if (
     !Number.isFinite(
       MUSIC_VOLUME
-    )
-  ) {
-    throw new Error(
-      `[RenderEngine] Invalid background music volume: ${MUSIC_VOLUME}`
-    );
-  }
-
-  if (
+    ) ||
     MUSIC_VOLUME < 0 ||
     MUSIC_VOLUME > 1
   ) {
@@ -805,7 +758,7 @@ function validateMusicVolume() {
 }
 
 // ---------------------------------------------------------
-// PREPARE BACKGROUND MUSIC
+// BACKGROUND MUSIC
 // ---------------------------------------------------------
 
 async function prepareBackgroundMusic(
@@ -832,7 +785,7 @@ async function prepareBackgroundMusic(
   const outputPath =
     path.join(
       workingDirectory,
-      "background-music.m4a"
+      'background-music.m4a'
     );
 
   fs.mkdirSync(
@@ -842,298 +795,160 @@ async function prepareBackgroundMusic(
     }
   );
 
-  console.log(
-    `[RenderEngine] Preparing background music: ${musicPath}`
-  );
-
-  console.log(
-    `[RenderEngine] Music volume: ${MUSIC_VOLUME}`
-  );
-
-  console.log(
-    `[RenderEngine] Music duration target: ${requestedDuration.toFixed(3)}s`
-  );
-
-  // -------------------------------------------------------
-  // CHECK SOURCE FILE
-  // -------------------------------------------------------
-
-  let sourceIsReadable = false;
+  let sourceIsReadable =
+    false;
 
   try {
     assertFile(
       musicPath,
-      "Background music"
-    );
-
-    const sourceStats =
-      fs.statSync(musicPath);
-
-    console.log(
-      `[RenderEngine] Background music size: ${sourceStats.size} bytes`
+      'Background music'
     );
 
     const probe =
       await runFFprobe([
-        "-v",
-        "error",
+        '-v',
+        'error',
 
-        "-select_streams",
-        "a:0",
+        '-select_streams',
+        'a:0',
 
-        "-show_entries",
-        "stream=codec_name,duration",
+        '-show_entries',
+        'stream=codec_name,duration',
 
-        "-of",
-        "json",
+        '-of',
+        'json',
 
         musicPath
       ]);
 
-    let probeData;
+    const data =
+      JSON.parse(
+        probe.stdout
+      );
 
-    try {
-      probeData =
-        JSON.parse(
-          probe.stdout
-        );
-    } catch {
-      probeData = null;
-    }
-
-    const audioStreams =
+    const streams =
       Array.isArray(
-        probeData?.streams
+        data?.streams
       )
-        ? probeData.streams
+        ? data.streams
         : [];
 
-    if (
-      audioStreams.length > 0 &&
-      audioStreams[0]?.codec_name
-    ) {
-      sourceIsReadable = true;
-
-      console.log(
-        `[RenderEngine] Background music source validation: PASS`
+    sourceIsReadable =
+      Boolean(
+        streams[0]?.codec_name
       );
-
-      console.log(
-        `[RenderEngine] Detected audio codec: ${audioStreams[0].codec_name}`
-      );
-    } else {
-      console.warn(
-        `[RenderEngine] Background music source validation: FAIL`
-      );
-
-      console.warn(
-        `[RenderEngine] FFprobe could not detect a valid audio stream.`
-      );
-    }
   } catch (error) {
     console.warn(
-      `[RenderEngine] Background music source validation failed.`
-    );
-
-    console.warn(
-      `[RenderEngine] Reason: ${error.message}`
+      `[RenderEngine] Background music validation failed: ${error.message}`
     );
   }
 
-  // -------------------------------------------------------
-  // SILENT FALLBACK
-  // -------------------------------------------------------
-
   async function createSilentBackgroundMusic() {
-    console.warn(
-      `[RenderEngine] Creating exact-duration silent background track: ${requestedDuration.toFixed(3)}s`
-    );
-
     await runFFmpeg([
-      "-y",
+      '-y',
 
-      "-f",
-      "lavfi",
+      '-f',
+      'lavfi',
 
-      "-i",
-      "anullsrc=channel_layout=stereo:sample_rate=48000",
+      '-i',
+      'anullsrc=channel_layout=stereo:sample_rate=48000',
 
-      "-t",
+      '-t',
       requestedDuration.toFixed(3),
 
-      "-vn",
+      '-vn',
 
-      "-c:a",
-      "aac",
+      '-c:a',
+      'aac',
 
-      "-b:a",
-      "192k",
+      '-b:a',
+      '192k',
 
-      "-ar",
-      "48000",
+      '-ar',
+      '48000',
 
-      "-ac",
-      "2",
+      '-ac',
+      '2',
 
       outputPath
     ]);
 
     assertFile(
       outputPath,
-      "Silent background music"
-    );
-
-    const silentInfo =
-      await getMediaInfo(
-        outputPath
-      );
-
-    if (!silentInfo.hasAudio) {
-      throw new Error(
-        "[RenderEngine] Silent background music has no audio stream."
-      );
-    }
-
-    if (
-      silentInfo.duration <
-      requestedDuration - 0.25
-    ) {
-      throw new Error(
-        `[RenderEngine] Silent background music is too short. Expected ${requestedDuration}s, got ${silentInfo.duration}s`
-      );
-    }
-
-    console.log(
-      `[RenderEngine] Silent background music ready: ${silentInfo.duration.toFixed(3)}s`
+      'Silent background music'
     );
 
     return outputPath;
   }
 
-  // -------------------------------------------------------
-  // INVALID/CORRUPT SOURCE
-  // -------------------------------------------------------
-
   if (!sourceIsReadable) {
     console.warn(
-      `[RenderEngine] Source background music is invalid/corrupt.`
-    );
-
-    console.warn(
-      `[RenderEngine] Skipping corrupt MP3 and using silent fallback.`
+      '[RenderEngine] Invalid/corrupt background music detected. Using silent fallback.'
     );
 
     return createSilentBackgroundMusic();
   }
-
-  // -------------------------------------------------------
-  // PREPARE VALID MUSIC
-  // -------------------------------------------------------
 
   try {
     await runFFmpeg([
-      "-y",
+      '-y',
 
-      "-stream_loop",
-      "-1",
+      '-stream_loop',
+      '-1',
 
-      "-i",
+      '-i',
       musicPath,
 
-      "-t",
+      '-t',
       requestedDuration.toFixed(3),
 
-      "-vn",
+      '-vn',
 
-      "-af",
+      '-af',
       [
         `volume=${MUSIC_VOLUME}`,
-        "aresample=48000",
+        'aresample=48000',
         `apad=pad_dur=${requestedDuration.toFixed(3)}`,
         `atrim=duration=${requestedDuration.toFixed(3)}`,
-        "asetpts=N/SR/TB"
-      ].join(","),
+        'asetpts=N/SR/TB'
+      ].join(','),
 
-      "-ar",
-      "48000",
+      '-ar',
+      '48000',
 
-      "-ac",
-      "2",
+      '-ac',
+      '2',
 
-      "-c:a",
-      "aac",
+      '-c:a',
+      'aac',
 
-      "-b:a",
-      "192k",
+      '-b:a',
+      '192k',
 
       outputPath
     ]);
+
+    assertFile(
+      outputPath,
+      'Prepared background music'
+    );
+
+    return outputPath;
   } catch (error) {
     console.warn(
-      `[RenderEngine] Background music processing failed.`
+      `[RenderEngine] Music processing failed: ${error.message}`
     );
 
     console.warn(
-      `[RenderEngine] Reason: ${error.message}`
-    );
-
-    console.warn(
-      `[RenderEngine] Falling back to silent background music.`
+      '[RenderEngine] Falling back to silent background music.'
     );
 
     return createSilentBackgroundMusic();
   }
-
-  // -------------------------------------------------------
-  // VERIFY PREPARED MUSIC
-  // -------------------------------------------------------
-
-  assertFile(
-    outputPath,
-    "Prepared background music"
-  );
-
-  const preparedInfo =
-    await getMediaInfo(
-      outputPath
-    );
-
-  if (!preparedInfo.hasAudio) {
-    console.warn(
-      `[RenderEngine] Prepared background music has no audio stream.`
-    );
-
-    return createSilentBackgroundMusic();
-  }
-
-  if (
-    preparedInfo.duration <
-    requestedDuration - 0.25
-  ) {
-    console.warn(
-      `[RenderEngine] Prepared background music is too short.`
-    );
-
-    console.warn(
-      `[RenderEngine] Expected: ${requestedDuration.toFixed(3)}s`
-    );
-
-    console.warn(
-      `[RenderEngine] Actual: ${preparedInfo.duration.toFixed(3)}s`
-    );
-
-    return createSilentBackgroundMusic();
-  }
-
-  console.log(
-    `[RenderEngine] Prepared background music PASS: ${preparedInfo.duration.toFixed(3)}s`
-  );
-
-  return outputPath;
 }
 
 // ---------------------------------------------------------
-// MIX NARRATION + BACKGROUND MUSIC
+// MIX NARRATION + MUSIC
 // ---------------------------------------------------------
 
 async function mixNarrationWithMusic(
@@ -1144,12 +959,12 @@ async function mixNarrationWithMusic(
 ) {
   assertFile(
     narrationPath,
-    "Narration"
+    'Narration'
   );
 
   assertFile(
     musicPath,
-    "Prepared background music"
+    'Prepared background music'
   );
 
   const requestedDuration =
@@ -1173,77 +988,49 @@ async function mixNarrationWithMusic(
     }
   );
 
-  console.log(
-    "[RenderEngine] Mixing narration with background music..."
-  );
-
   const filterComplex = [
-    `[0:a]aresample=48000,asetpts=PTS-STARTPTS[narration]`,
+    '[0:a]aresample=48000,asetpts=PTS-STARTPTS[narration]',
 
-    `[1:a]aresample=48000,asetpts=PTS-STARTPTS[music]`,
+    '[1:a]aresample=48000,asetpts=PTS-STARTPTS[music]',
 
-    `[narration][music]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[mixed]`,
+    '[narration][music]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[mixed]',
 
     `[mixed]atrim=duration=${requestedDuration.toFixed(3)},asetpts=N/SR/TB[outa]`
-  ].join(";");
+  ].join(';');
 
   await runFFmpeg([
-    "-y",
+    '-y',
 
-    "-i",
+    '-i',
     narrationPath,
 
-    "-i",
+    '-i',
     musicPath,
 
-    "-filter_complex",
+    '-filter_complex',
     filterComplex,
 
-    "-map",
-    "[outa]",
+    '-map',
+    '[outa]',
 
-    "-ar",
-    "48000",
+    '-ar',
+    '48000',
 
-    "-ac",
-    "2",
+    '-ac',
+    '2',
 
-    "-c:a",
-    "aac",
+    '-c:a',
+    'aac',
 
-    "-b:a",
-    "192k",
+    '-b:a',
+    '192k',
 
     outputPath
   ]);
 
   assertFile(
     outputPath,
-    "Mixed narration and music"
-  );
-
-  const info =
-    await getMediaInfo(
-      outputPath
-    );
-
-  if (!info.hasAudio) {
-    throw new Error(
-      "[RenderEngine] Mixed audio has no audio stream."
-    );
-  }
-
-  if (
-    info.duration <
-    requestedDuration - 0.25
-  ) {
-    throw new Error(
-      `[RenderEngine] Mixed audio is too short. Expected ${requestedDuration}s, got ${info.duration}s`
-    );
-  }
-
-  console.log(
-    `[RenderEngine] Mixed audio duration: ${info.duration.toFixed(3)}s`
+    'Mixed narration and music'
   );
 
   return outputPath;
@@ -1260,12 +1047,12 @@ async function addVoiceover(
 ) {
   assertFile(
     videoPath,
-    "Combined video"
+    'Combined video'
   );
 
   assertFile(
     audioPath,
-    "Final mixed audio"
+    'Final mixed audio'
   );
 
   fs.mkdirSync(
@@ -1275,60 +1062,56 @@ async function addVoiceover(
     }
   );
 
-  console.log(
-    "[RenderEngine] Adding narration + background music to video..."
-  );
-
   await runFFmpeg([
-    "-y",
+    '-y',
 
-    "-i",
+    '-i',
     videoPath,
 
-    "-i",
+    '-i',
     audioPath,
 
-    "-map",
-    "0:v:0",
+    '-map',
+    '0:v:0',
 
-    "-map",
-    "1:a:0",
+    '-map',
+    '1:a:0',
 
-    "-c:v",
+    '-c:v',
     VIDEO_CODEC,
 
-    "-pix_fmt",
+    '-pix_fmt',
     PIX_FMT,
 
-    "-preset",
+    '-preset',
     PRESET,
 
-    "-crf",
+    '-crf',
     CRF,
 
-    "-c:a",
-    "aac",
+    '-c:a',
+    'aac',
 
-    "-b:a",
-    "192k",
+    '-b:a',
+    '192k',
 
-    "-ar",
-    "48000",
+    '-ar',
+    '48000',
 
-    "-ac",
-    "2",
+    '-ac',
+    '2',
 
-    "-movflags",
-    "+faststart",
+    '-movflags',
+    '+faststart',
 
-    "-shortest",
+    '-shortest',
 
     outputPath
   ]);
 
   assertFile(
     outputPath,
-    "Final rendered video"
+    'Final rendered video'
   );
 
   return outputPath;
@@ -1344,7 +1127,7 @@ async function validateRenderedVideo(
 ) {
   assertFile(
     filePath,
-    "Rendered video"
+    'Rendered video'
   );
 
   const info =
@@ -1354,13 +1137,13 @@ async function validateRenderedVideo(
 
   if (!info.hasVideo) {
     throw new Error(
-      "[RenderEngine] Final video has no video stream."
+      '[RenderEngine] Final video has no video stream.'
     );
   }
 
   if (!info.hasAudio) {
     throw new Error(
-      "[RenderEngine] Final video has no audio stream."
+      '[RenderEngine] Final video has no audio stream.'
     );
   }
 
@@ -1412,10 +1195,6 @@ async function validateRenderedVideo(
     }
   }
 
-  console.log(
-    `[RenderEngine] FINAL QA PASS: ${info.duration.toFixed(3)}s | ${info.video.width}x${info.video.height} | video=${info.hasVideo} | audio=${info.hasAudio}`
-  );
-
   return info;
 }
 
@@ -1434,7 +1213,7 @@ async function renderFinalVideo(
     videoPaths.length === 0
   ) {
     throw new Error(
-      "[RenderEngine] renderFinalVideo received no video paths."
+      '[RenderEngine] renderFinalVideo received no video paths.'
     );
   }
 
@@ -1470,11 +1249,8 @@ async function renderFinalVideo(
     );
   }
 
-  const outputDirectory =
-    path.dirname(outputPath);
-
   fs.mkdirSync(
-    outputDirectory,
+    path.dirname(outputPath),
     {
       recursive: true
     }
@@ -1482,7 +1258,7 @@ async function renderFinalVideo(
 
   const workingDirectory =
     path.join(
-      outputDirectory,
+      path.dirname(outputPath),
       `.render-${Date.now()}`
     );
 
@@ -1493,59 +1269,9 @@ async function renderFinalVideo(
     }
   );
 
-  console.log(
-    "[RenderEngine] ========================================"
-  );
-
-  console.log(
-    "[RenderEngine] STARTING FINAL VIDEO RENDER"
-  );
-
-  console.log(
-    `[RenderEngine] Scenes: ${videoPaths.length}`
-  );
-
-  console.log(
-    `[RenderEngine] Output: ${outputPath}`
-  );
-
-  console.log(
-    `[RenderEngine] Codec: ${VIDEO_CODEC}`
-  );
-
-  console.log(
-    `[RenderEngine] Pixel format: ${PIX_FMT}`
-  );
-
-  console.log(
-    `[RenderEngine] Preset: ${PRESET}`
-  );
-
-  console.log(
-    `[RenderEngine] CRF: ${CRF}`
-  );
-
-  console.log(
-    "[RenderEngine] Background music: ENABLED"
-  );
-
-  console.log(
-    `[RenderEngine] Music file: ${getBackgroundMusicPath(
-      options
-    )}`
-  );
-
-  console.log(
-    `[RenderEngine] Music volume: ${MUSIC_VOLUME}`
-  );
-
-  console.log(
-    "[RenderEngine] ========================================"
-  );
-
   try {
     // -----------------------------------------------------
-    // STEP 1: COMBINE SCENE VIDEOS
+    // 1. SCENE VIDEOS
     // -----------------------------------------------------
 
     const combinedVideoPath =
@@ -1556,7 +1282,7 @@ async function renderFinalVideo(
       );
 
     // -----------------------------------------------------
-    // STEP 2: COMPLETE NARRATION
+    // 2. SCENE NARRATION
     // -----------------------------------------------------
 
     const completeNarrationPath =
@@ -1567,7 +1293,7 @@ async function renderFinalVideo(
       );
 
     // -----------------------------------------------------
-    // STEP 3: EXPECTED DURATION
+    // 3. EXPECTED DURATION
     // -----------------------------------------------------
 
     const expectedDuration =
@@ -1590,16 +1316,12 @@ async function renderFinalVideo(
       expectedDuration <= 0
     ) {
       throw new Error(
-        "[RenderEngine] Could not calculate expected final duration."
+        '[RenderEngine] Could not calculate expected final duration.'
       );
     }
 
-    console.log(
-      `[RenderEngine] Expected final duration: ${expectedDuration.toFixed(3)}s`
-    );
-
     // -----------------------------------------------------
-    // STEP 4: BACKGROUND MUSIC
+    // 4. BACKGROUND MUSIC
     // -----------------------------------------------------
 
     const backgroundMusicPath =
@@ -1615,13 +1337,13 @@ async function renderFinalVideo(
       );
 
     // -----------------------------------------------------
-    // STEP 5: MIX NARRATION + MUSIC
+    // 5. MIX AUDIO
     // -----------------------------------------------------
 
     const mixedAudioPath =
       path.join(
         workingDirectory,
-        "final-mixed-audio.m4a"
+        'final-mixed-audio.m4a'
       );
 
     await mixNarrationWithMusic(
@@ -1632,13 +1354,13 @@ async function renderFinalVideo(
     );
 
     // -----------------------------------------------------
-    // STEP 6: FINAL VIDEO + MIXED AUDIO
+    // 6. FINAL MP4
     // -----------------------------------------------------
 
     const renderedPath =
       path.join(
         workingDirectory,
-        "rendered-final.mp4"
+        'rendered-final.mp4'
       );
 
     await addVoiceover(
@@ -1648,7 +1370,7 @@ async function renderFinalVideo(
     );
 
     // -----------------------------------------------------
-    // STEP 7: FINAL MEDIA QA
+    // 7. VALIDATE TEMP FINAL
     // -----------------------------------------------------
 
     await validateRenderedVideo(
@@ -1657,7 +1379,7 @@ async function renderFinalVideo(
     );
 
     // -----------------------------------------------------
-    // STEP 8: COPY FINAL MP4
+    // 8. COPY TO FINAL OUTPUT
     // -----------------------------------------------------
 
     fs.copyFileSync(
@@ -1665,31 +1387,18 @@ async function renderFinalVideo(
       outputPath
     );
 
-    assertFile(
-      outputPath,
-      "Final output MP4"
-    );
-
     // -----------------------------------------------------
-    // STEP 9: VERIFY COPIED MP4
+    // 9. VALIDATE FINAL OUTPUT
     // -----------------------------------------------------
 
     const finalInfo =
-      await getMediaInfo(
-        outputPath
+      await validateRenderedVideo(
+        outputPath,
+        expectedDuration
       );
 
-    await validateRenderedVideo(
-      outputPath,
-      expectedDuration
-    );
-
     console.log(
-      "[RenderEngine] ========================================"
-    );
-
-    console.log(
-      "[RenderEngine] FINAL RENDER PASS"
+      '[RenderEngine] FINAL RENDER PASS'
     );
 
     console.log(
@@ -1702,26 +1411,6 @@ async function renderFinalVideo(
 
     console.log(
       `[RenderEngine] Resolution: ${finalInfo.video.width}x${finalInfo.video.height}`
-    );
-
-    console.log(
-      `[RenderEngine] Video: ${finalInfo.hasVideo}`
-    );
-
-    console.log(
-      `[RenderEngine] Audio: ${finalInfo.hasAudio}`
-    );
-
-    console.log(
-      "[RenderEngine] Background music: MIXED"
-    );
-
-    console.log(
-      `[RenderEngine] Music volume: ${MUSIC_VOLUME}`
-    );
-
-    console.log(
-      "[RenderEngine] ========================================"
     );
 
     return {
@@ -1745,17 +1434,12 @@ async function renderFinalVideo(
       backgroundMusic:
         true,
 
-      backgroundMusicPath:
-        backgroundMusicPath,
+      backgroundMusicPath,
 
       backgroundMusicVolume:
         MUSIC_VOLUME
     };
   } finally {
-    // -----------------------------------------------------
-    // CLEAN TEMP RENDER DIRECTORY
-    // -----------------------------------------------------
-
     try {
       if (
         fs.existsSync(
@@ -1770,9 +1454,7 @@ async function renderFinalVideo(
           }
         );
       }
-    } catch (
-      cleanupError
-    ) {
+    } catch (cleanupError) {
       console.warn(
         `[RenderEngine] Temporary directory cleanup warning: ${cleanupError.message}`
       );
