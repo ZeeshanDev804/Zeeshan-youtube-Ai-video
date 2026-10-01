@@ -2,23 +2,61 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 import crypto from 'crypto';
-
 import gTTS from 'gtts';
 
 import { config } from '../config/index.mjs';
 
+// ============================================================
+// ZEESHAN AI LABS — PROFESSIONAL VOICE ENGINE
+// ============================================================
+
 const MIN_AUDIO_BYTES = 1024;
 const REQUEST_TIMEOUT_MS = 60000;
+const MAX_TEXT_LENGTH = 5000;
+const MAX_PROVIDER_RETRIES = 2;
 
-/* =========================================================
-   Helpers
-   ========================================================= */
+// Professional narration defaults
+const DEFAULT_LANGUAGE = 'en-US';
+const DEFAULT_ELEVEN_MODEL = 'eleven_multilingual_v2';
 
-function cleanText(text) {
-  return String(text || '')
+const DEFAULT_VOICE_PROFILE = {
+  stability: 0.42,
+  similarityBoost: 0.82,
+  style: 0.30,
+  useSpeakerBoost: true
+};
+
+// ============================================================
+// TEXT NORMALIZATION
+// ============================================================
+
+function cleanText(value) {
+  return String(value || '')
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+function validateText(value) {
+  const text = cleanText(value);
+
+  if (!text) {
+    throw new Error(
+      '[VoiceEngine] Narration text is empty.'
+    );
+  }
+
+  if (text.length > MAX_TEXT_LENGTH) {
+    throw new Error(
+      `[VoiceEngine] Narration exceeds maximum length: ${text.length} characters.`
+    );
+  }
+
+  return text;
+}
+
+// ============================================================
+// FILE MANAGEMENT
+// ============================================================
 
 function ensureOutputDirectory(outputPath) {
   const directory = path.dirname(
@@ -37,7 +75,7 @@ function removeExistingFile(outputPath) {
     }
   } catch (error) {
     throw new Error(
-      `[VoiceEngine] Could not remove old audio file: ${
+      `[VoiceEngine] Could not remove existing audio: ${
         error?.message || String(error)
       }`
     );
@@ -47,7 +85,7 @@ function removeExistingFile(outputPath) {
 function validateAudioFile(outputPath) {
   if (!fs.existsSync(outputPath)) {
     throw new Error(
-      `[VoiceEngine] Audio file was not created: ${outputPath}`
+      `[VoiceEngine] Audio file does not exist: ${outputPath}`
     );
   }
 
@@ -55,26 +93,54 @@ function validateAudioFile(outputPath) {
 
   if (!stats.isFile()) {
     throw new Error(
-      `[VoiceEngine] Audio path is not a regular file: ${outputPath}`
+      `[VoiceEngine] Audio output is not a file: ${outputPath}`
     );
   }
 
   if (stats.size < MIN_AUDIO_BYTES) {
     throw new Error(
-      `[VoiceEngine] Generated audio is too small or invalid: ${outputPath} (${stats.size} bytes)`
+      `[VoiceEngine] Audio output is invalid or too small: ${stats.size} bytes`
     );
   }
 
   return outputPath;
 }
 
-/* =========================================================
-   Configuration
-   ========================================================= */
+function writeAudioFile(outputPath, audioBuffer) {
+  if (
+    !Buffer.isBuffer(audioBuffer) ||
+    audioBuffer.length < MIN_AUDIO_BYTES
+  ) {
+    throw new Error(
+      '[VoiceEngine] Provider returned invalid audio data.'
+    );
+  }
+
+  ensureOutputDirectory(outputPath);
+
+  fs.writeFileSync(
+    outputPath,
+    audioBuffer
+  );
+
+  return validateAudioFile(outputPath);
+}
+
+// ============================================================
+// ENVIRONMENT / CONFIG HELPERS
+// ============================================================
+
+function getLanguageCode() {
+  return (
+    config?.ttsConfig?.language ||
+    process.env.TTS_LANGUAGE ||
+    DEFAULT_LANGUAGE
+  );
+}
 
 function getElevenLabsApiKey() {
   return (
-    config.elevenLabsApiKey ||
+    config?.elevenLabsApiKey ||
     process.env.ELEVENLABS_API_KEY ||
     ''
   );
@@ -82,7 +148,7 @@ function getElevenLabsApiKey() {
 
 function getElevenLabsVoiceId() {
   return (
-    config.elevenLabsVoiceId ||
+    config?.elevenLabsVoiceId ||
     process.env.ELEVENLABS_VOICE_ID ||
     ''
   );
@@ -90,31 +156,45 @@ function getElevenLabsVoiceId() {
 
 function getElevenLabsSettings() {
   const settings =
-    config.ttsConfig?.elevenLabs || {};
+    config?.ttsConfig?.elevenLabs ||
+    {};
 
   return {
     modelId:
       settings.modelId ||
       process.env.ELEVENLABS_MODEL_ID ||
-      'eleven_multilingual_v2',
+      DEFAULT_ELEVEN_MODEL,
 
     stability:
-      settings.stability ?? 0.45,
+      Number(
+        settings.stability ??
+        process.env.ELEVENLABS_STABILITY ??
+        DEFAULT_VOICE_PROFILE.stability
+      ),
 
     similarityBoost:
-      settings.similarityBoost ?? 0.80,
+      Number(
+        settings.similarityBoost ??
+        process.env.ELEVENLABS_SIMILARITY_BOOST ??
+        DEFAULT_VOICE_PROFILE.similarityBoost
+      ),
 
     style:
-      settings.style ?? 0.20,
+      Number(
+        settings.style ??
+        process.env.ELEVENLABS_STYLE ??
+        DEFAULT_VOICE_PROFILE.style
+      ),
 
     useSpeakerBoost:
-      settings.useSpeakerBoost ?? true
+      settings.useSpeakerBoost ??
+      DEFAULT_VOICE_PROFILE.useSpeakerBoost
   };
 }
 
 function getGoogleApiKey() {
   return (
-    config.googleCloudTtsApiKey ||
+    config?.googleCloudTtsApiKey ||
     process.env.GOOGLE_CLOUD_TTS_API_KEY ||
     ''
   );
@@ -122,41 +202,215 @@ function getGoogleApiKey() {
 
 function getGoogleVoice() {
   return (
-    config.googleCloudTtsVoice ||
+    config?.googleCloudTtsVoice ||
     process.env.GOOGLE_CLOUD_TTS_VOICE ||
     'en-US-Neural2-D'
   );
 }
 
-function getLanguageCode() {
+function getAwsCredentials() {
+  return {
+    accessKey:
+      process.env.AWS_ACCESS_KEY_ID ||
+      config?.awsAccessKeyId ||
+      '',
+
+    secretKey:
+      process.env.AWS_SECRET_ACCESS_KEY ||
+      config?.awsSecretAccessKey ||
+      '',
+
+    sessionToken:
+      process.env.AWS_SESSION_TOKEN ||
+      config?.awsSessionToken ||
+      ''
+  };
+}
+
+function getAwsRegion() {
   return (
-    config.ttsConfig?.language ||
-    process.env.TTS_LANGUAGE ||
-    'en-US'
+    process.env.AWS_REGION ||
+    config?.awsRegion ||
+    'us-east-1'
   );
 }
 
-function getGttsLanguage() {
-  const language =
-    getLanguageCode();
-
-  if (
-    language
-      .toLowerCase()
-      .startsWith('en')
-  ) {
-    return 'en';
-  }
-
-  return language
-    .split('-')[0]
-    .split('_')[0]
-    .toLowerCase();
+function getPollyVoice() {
+  return (
+    process.env.AWS_POLLY_VOICE ||
+    config?.awsPollyVoice ||
+    'Matthew'
+  );
 }
 
-/* =========================================================
-   HTTPS helpers
-   ========================================================= */
+function getPollyEngine() {
+  const engine = String(
+    process.env.AWS_POLLY_ENGINE ||
+    config?.awsPollyEngine ||
+    'neural'
+  )
+    .trim()
+    .toLowerCase();
+
+  return engine === 'standard'
+    ? 'standard'
+    : 'neural';
+}
+
+// ============================================================
+// BOOLEAN HELPER
+// ============================================================
+
+function readBoolean(value, fallback) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return fallback;
+  }
+
+  return String(value)
+    .trim()
+    .toLowerCase() === 'true';
+}
+
+// ============================================================
+// PROFESSIONAL VOICE PROFILE
+// ============================================================
+
+function getVoiceProfile(options = {}) {
+  const mood = String(
+    options.mood ||
+    options.tone ||
+    options.category ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
+
+  const profile = {
+    ...DEFAULT_VOICE_PROFILE
+  };
+
+  switch (mood) {
+    case 'mystery':
+    case 'mysterious':
+    case 'suspense':
+      profile.stability = 0.38;
+      profile.similarityBoost = 0.84;
+      profile.style = 0.38;
+      break;
+
+    case 'emotional':
+    case 'emotion':
+      profile.stability = 0.36;
+      profile.similarityBoost = 0.84;
+      profile.style = 0.42;
+      break;
+
+    case 'funny':
+    case 'comedy':
+      profile.stability = 0.34;
+      profile.similarityBoost = 0.80;
+      profile.style = 0.48;
+      break;
+
+    case 'motivation':
+    case 'motivational':
+      profile.stability = 0.40;
+      profile.similarityBoost = 0.84;
+      profile.style = 0.36;
+      break;
+
+    case 'facts':
+    case 'interesting':
+    case 'educational':
+      profile.stability = 0.48;
+      profile.similarityBoost = 0.84;
+      profile.style = 0.24;
+      break;
+
+    default:
+      break;
+  }
+
+  if (options.voiceSettings) {
+    if (
+      Number.isFinite(
+        Number(
+          options.voiceSettings.stability
+        )
+      )
+    ) {
+      profile.stability =
+        Number(
+          options.voiceSettings.stability
+        );
+    }
+
+    if (
+      Number.isFinite(
+        Number(
+          options.voiceSettings.similarityBoost
+        )
+      )
+    ) {
+      profile.similarityBoost =
+        Number(
+          options.voiceSettings.similarityBoost
+        );
+    }
+
+    if (
+      Number.isFinite(
+        Number(
+          options.voiceSettings.style
+        )
+      )
+    ) {
+      profile.style =
+        Number(
+          options.voiceSettings.style
+        );
+    }
+  }
+
+  return profile;
+}
+
+// ============================================================
+// NARRATION PROCESSING
+// ============================================================
+
+function prepareNarration(text, options = {}) {
+  let narration = validateText(text);
+
+  // Remove unnecessary markdown artifacts.
+  narration = narration
+    .replace(/[*_`#]+/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Professional pause handling.
+  if (options.addNaturalPauses !== false) {
+    narration = narration
+      .replace(/,\s*/g, ', ')
+      .replace(/;\s*/g, '; ')
+      .replace(/:\s*/g, ': ')
+      .replace(/\.\s+/g, '. ');
+  }
+
+  return narration;
+}
+
+// ============================================================
+// HTTPS JSON REQUEST
+// ============================================================
 
 function requestJson({
   hostname,
@@ -165,76 +419,102 @@ function requestJson({
   headers = {},
   body = null
 }) {
-  return new Promise((resolve, reject) => {
-    const request = https.request(
-      {
-        hostname,
-        path: requestPath,
-        method,
-        headers,
-        timeout: REQUEST_TIMEOUT_MS
-      },
-      response => {
-        let data = '';
+  return new Promise(
+    (resolve, reject) => {
+      const request =
+        https.request(
+          {
+            hostname,
+            path: requestPath,
+            method,
+            headers,
+            timeout:
+              REQUEST_TIMEOUT_MS
+          },
+          response => {
+            let data = '';
 
-        response.setEncoding('utf8');
-
-        response.on('data', chunk => {
-          data += chunk;
-        });
-
-        response.on('end', () => {
-          const statusCode =
-            response.statusCode || 0;
-
-          if (
-            statusCode < 200 ||
-            statusCode >= 300
-          ) {
-            reject(
-              new Error(
-                `HTTP ${statusCode}: ${data.slice(
-                  0,
-                  1000
-                )}`
-              )
+            response.setEncoding(
+              'utf8'
             );
-            return;
-          }
 
-          if (!data) {
-            resolve({});
-            return;
-          }
+            response.on(
+              'data',
+              chunk => {
+                data += chunk;
+              }
+            );
 
-          try {
-            resolve(JSON.parse(data));
-          } catch {
-            resolve(data);
-          }
-        });
-      }
-    );
+            response.on(
+              'end',
+              () => {
+                const status =
+                  response.statusCode ||
+                  0;
 
-    request.on('timeout', () => {
-      request.destroy(
-        new Error(
-          `HTTPS request timed out after ${
-            REQUEST_TIMEOUT_MS / 1000
-          } seconds.`
-        )
+                if (
+                  status < 200 ||
+                  status >= 300
+                ) {
+                  reject(
+                    new Error(
+                      `HTTP ${status}: ${data.slice(
+                        0,
+                        1500
+                      )}`
+                    )
+                  );
+                  return;
+                }
+
+                if (!data) {
+                  resolve({});
+                  return;
+                }
+
+                try {
+                  resolve(
+                    JSON.parse(data)
+                  );
+                } catch {
+                  resolve(data);
+                }
+              }
+            );
+          }
+        );
+
+      request.on(
+        'timeout',
+        () => {
+          request.destroy(
+            new Error(
+              `Request timeout after ${
+                REQUEST_TIMEOUT_MS /
+                1000
+              } seconds.`
+            )
+          );
+        }
       );
-    });
 
-    request.on('error', reject);
+      request.on(
+        'error',
+        reject
+      );
 
-    if (body) {
-      request.write(body);
+      if (body) {
+        request.write(body);
+      }
+
+      request.end();
     }
-
-    request.end();
-  });
+  );
 }
+
+// ============================================================
+// HTTPS BINARY REQUEST
+// ============================================================
 
 function requestBinary({
   hostname,
@@ -243,75 +523,162 @@ function requestBinary({
   headers = {},
   body = null
 }) {
-  return new Promise((resolve, reject) => {
-    const request = https.request(
-      {
-        hostname,
-        path: requestPath,
-        method,
-        headers,
-        timeout: REQUEST_TIMEOUT_MS
-      },
-      response => {
-        const chunks = [];
+  return new Promise(
+    (resolve, reject) => {
+      const request =
+        https.request(
+          {
+            hostname,
+            path: requestPath,
+            method,
+            headers,
+            timeout:
+              REQUEST_TIMEOUT_MS
+          },
+          response => {
+            const chunks = [];
 
-        response.on('data', chunk => {
-          chunks.push(chunk);
-        });
-
-        response.on('end', () => {
-          const buffer =
-            Buffer.concat(chunks);
-
-          const statusCode =
-            response.statusCode || 0;
-
-          if (
-            statusCode < 200 ||
-            statusCode >= 300
-          ) {
-            reject(
-              new Error(
-                `HTTP ${statusCode}: ${buffer
-                  .toString('utf8')
-                  .slice(0, 1000)}`
-              )
+            response.on(
+              'data',
+              chunk => {
+                chunks.push(chunk);
+              }
             );
-            return;
+
+            response.on(
+              'end',
+              () => {
+                const buffer =
+                  Buffer.concat(
+                    chunks
+                  );
+
+                const status =
+                  response.statusCode ||
+                  0;
+
+                if (
+                  status < 200 ||
+                  status >= 300
+                ) {
+                  reject(
+                    new Error(
+                      `HTTP ${status}: ${buffer
+                        .toString(
+                          'utf8'
+                        )
+                        .slice(
+                          0,
+                          1500
+                        )}`
+                    )
+                  );
+                  return;
+                }
+
+                resolve(buffer);
+              }
+            );
           }
+        );
 
-          resolve(buffer);
-        });
-      }
-    );
-
-    request.on('timeout', () => {
-      request.destroy(
-        new Error(
-          `HTTPS request timed out after ${
-            REQUEST_TIMEOUT_MS / 1000
-          } seconds.`
-        )
+      request.on(
+        'timeout',
+        () => {
+          request.destroy(
+            new Error(
+              `Request timeout after ${
+                REQUEST_TIMEOUT_MS /
+                1000
+              } seconds.`
+            )
+          );
+        }
       );
-    });
 
-    request.on('error', reject);
+      request.on(
+        'error',
+        reject
+      );
 
-    if (body) {
-      request.write(body);
+      if (body) {
+        request.write(body);
+      }
+
+      request.end();
     }
-
-    request.end();
-  });
+  );
 }
 
-/* =========================================================
-   ElevenLabs
-   ========================================================= */
+// ============================================================
+// RETRY SYSTEM
+// ============================================================
+
+function sleep(ms) {
+  return new Promise(
+    resolve =>
+      setTimeout(
+        resolve,
+        ms
+      )
+  );
+}
+
+async function withRetry(
+  operation,
+  provider
+) {
+  let lastError;
+
+  for (
+    let attempt = 1;
+    attempt <=
+      MAX_PROVIDER_RETRIES;
+    attempt += 1
+  ) {
+    try {
+      return await operation(
+        attempt
+      );
+    } catch (error) {
+      lastError =
+        error;
+
+      if (
+        attempt >=
+        MAX_PROVIDER_RETRIES
+      ) {
+        break;
+      }
+
+      const delay =
+        1000 *
+        Math.pow(
+          2,
+          attempt - 1
+        );
+
+      console.warn(
+        `[VoiceEngine] ${provider} failed on attempt ${attempt}. Retrying...`
+      );
+
+      await sleep(
+        delay
+      );
+    }
+  }
+
+  throw lastError;
+}
+
+// ============================================================
+// ELEVENLABS PROFESSIONAL GENERATION
+// ============================================================
 
 async function generateWithElevenLabs(
   text,
-  outputPath
+  outputPath,
+  options = {}
 ) {
   const apiKey =
     getElevenLabsApiKey();
@@ -334,83 +701,79 @@ async function generateWithElevenLabs(
   const settings =
     getElevenLabsSettings();
 
-  const requestPath =
-    `/v1/text-to-speech/${encodeURIComponent(
-      voiceId
-    )}`;
+  const profile =
+    getVoiceProfile(
+      options
+    );
 
-  const body = JSON.stringify({
-    text,
+  const body =
+    JSON.stringify({
+      text,
 
-    model_id:
-      settings.modelId,
+      model_id:
+        settings.modelId,
 
-    voice_settings: {
-      stability:
-        settings.stability,
+      voice_settings: {
+        stability:
+          profile.stability,
 
-      similarity_boost:
-        settings.similarityBoost,
+        similarity_boost:
+          profile.similarityBoost,
 
-      style:
-        settings.style,
+        style:
+          profile.style,
 
-      use_speaker_boost:
-        settings.useSpeakerBoost
-    }
-  });
-
-  const audioBuffer =
-    await requestBinary({
-      hostname:
-        'api.elevenlabs.io',
-
-      path:
-        requestPath,
-
-      method:
-        'POST',
-
-      headers: {
-        Accept:
-          'audio/mpeg',
-
-        'Content-Type':
-          'application/json',
-
-        'xi-api-key':
-          apiKey,
-
-        'Content-Length':
-          Buffer.byteLength(body)
-      },
-
-      body
+        use_speaker_boost:
+          profile.useSpeakerBoost
+      }
     });
 
-  if (
-    !audioBuffer ||
-    audioBuffer.length <
-      MIN_AUDIO_BYTES
-  ) {
-    throw new Error(
-      'ElevenLabs returned invalid or empty audio.'
+  const audio =
+    await withRetry(
+      () =>
+        requestBinary({
+          hostname:
+            'api.elevenlabs.io',
+
+          path:
+            `/v1/text-to-speech/${encodeURIComponent(
+              voiceId
+            )}`,
+
+          method:
+            'POST',
+
+          headers: {
+            Accept:
+              'audio/mpeg',
+
+            'Content-Type':
+              'application/json',
+
+            'xi-api-key':
+              apiKey,
+
+            'Content-Length':
+              Buffer.byteLength(
+                body
+              )
+          },
+
+          body
+        }),
+
+      'ElevenLabs'
     );
-  }
 
-  fs.writeFileSync(
+  return writeAudioFile(
     outputPath,
-    audioBuffer
-  );
-
-  return validateAudioFile(
-    outputPath
+    audio
   );
 }
 
-/* =========================================================
-   Google Cloud TTS
-   ========================================================= */
+// ============================================================
+// GOOGLE CLOUD TTS BACKUP
+// ============================================================
 
 async function generateWithGoogleCloud(
   text,
@@ -431,87 +794,96 @@ async function generateWithGoogleCloud(
   const voiceName =
     getGoogleVoice();
 
-  const body = JSON.stringify({
-    input: {
-      text
-    },
-
-    voice: {
-      languageCode,
-      name: voiceName
-    },
-
-    audioConfig: {
-      audioEncoding:
-        'MP3',
-
-      speakingRate:
-        1.0,
-
-      pitch:
-        0
-    }
-  });
-
-  const result =
-    await requestJson({
-      hostname:
-        'texttospeech.googleapis.com',
-
-      path:
-        `/v1/text:synthesize?key=${encodeURIComponent(
-          apiKey
-        )}`,
-
-      method:
-        'POST',
-
-      headers: {
-        'Content-Type':
-          'application/json',
-
-        'Content-Length':
-          Buffer.byteLength(body)
+  const body =
+    JSON.stringify({
+      input: {
+        text
       },
 
-      body
+      voice: {
+        languageCode,
+        name:
+          voiceName
+      },
+
+      audioConfig: {
+        audioEncoding:
+          'MP3',
+
+        speakingRate:
+          1.0,
+
+        pitch:
+          0,
+
+        volumeGainDb:
+          0
+      }
     });
 
-  if (!result?.audioContent) {
+  const result =
+    await withRetry(
+      () =>
+        requestJson({
+          hostname:
+            'texttospeech.googleapis.com',
+
+          path:
+            `/v1/text:synthesize?key=${encodeURIComponent(
+              apiKey
+            )}`,
+
+          method:
+            'POST',
+
+          headers: {
+            'Content-Type':
+              'application/json',
+
+            'Content-Length':
+              Buffer.byteLength(
+                body
+              )
+          },
+
+          body
+        }),
+
+      'Google Cloud TTS'
+    );
+
+  if (
+    !result?.audioContent
+  ) {
     throw new Error(
       'Google Cloud TTS returned no audioContent.'
     );
   }
 
-  const audioBuffer =
+  const audio =
     Buffer.from(
       result.audioContent,
       'base64'
     );
 
-  if (
-    !audioBuffer ||
-    audioBuffer.length <
-      MIN_AUDIO_BYTES
-  ) {
-    throw new Error(
-      'Google Cloud TTS returned invalid or empty audio.'
-    );
-  }
-
-  fs.writeFileSync(
+  return writeAudioFile(
     outputPath,
-    audioBuffer
-  );
-
-  return validateAudioFile(
-    outputPath
+    audio
   );
 }
 
-/* =========================================================
-   AWS Signature V4
-   ========================================================= */
+// ============================================================
+// AWS CRYPTOGRAPHY
+// ============================================================
+
+function sha256Hex(data) {
+  return crypto
+    .createHash(
+      'sha256'
+    )
+    .update(data)
+    .digest('hex');
+}
 
 function hmacSha256(
   key,
@@ -523,15 +895,13 @@ function hmacSha256(
       'sha256',
       key
     )
-    .update(data, 'utf8')
-    .digest(encoding);
-}
-
-function sha256Hex(data) {
-  return crypto
-    .createHash('sha256')
-    .update(data)
-    .digest('hex');
+    .update(
+      data,
+      'utf8'
+    )
+    .digest(
+      encoding
+    );
 }
 
 function buildAmzDate(
@@ -545,71 +915,18 @@ function buildAmzDate(
     );
 }
 
-function getDateStamp(amzDate) {
+function getDateStamp(
+  amzDate
+) {
   return amzDate.slice(
     0,
     8
   );
 }
 
-function getAwsCredentials() {
-  const accessKey =
-    process.env.AWS_ACCESS_KEY_ID ||
-    config.awsAccessKeyId ||
-    '';
-
-  const secretKey =
-    process.env.AWS_SECRET_ACCESS_KEY ||
-    config.awsSecretAccessKey ||
-    '';
-
-  const sessionToken =
-    process.env.AWS_SESSION_TOKEN ||
-    config.awsSessionToken ||
-    '';
-
-  if (!accessKey) {
-    throw new Error(
-      'AWS_ACCESS_KEY_ID is missing.'
-    );
-  }
-
-  if (!secretKey) {
-    throw new Error(
-      'AWS_SECRET_ACCESS_KEY is missing.'
-    );
-  }
-
-  return {
-    accessKey,
-    secretKey,
-    sessionToken
-  };
-}
-
-function getAwsRegion() {
-  return (
-    process.env.AWS_REGION ||
-    config.awsRegion ||
-    'us-east-1'
-  );
-}
-
-function getAwsPollyVoice() {
-  return (
-    process.env.AWS_POLLY_VOICE ||
-    config.awsPollyVoice ||
-    'Matthew'
-  );
-}
-
-function getAwsPollyEngine() {
-  return (
-    process.env.AWS_POLLY_ENGINE ||
-    config.awsPollyEngine ||
-    'neural'
-  );
-}
+// ============================================================
+// AWS SIGNATURE V4
+// ============================================================
 
 function createAwsAuthorization({
   accessKey,
@@ -633,45 +950,53 @@ function createAwsAuthorization({
     '';
 
   const payloadHash =
-    sha256Hex(body);
+    sha256Hex(
+      body
+    );
 
-  const canonicalHeaderValues = {
+  const headerValues = {
     host,
+
     'content-type':
       'application/json',
+
     'x-amz-content-sha256':
       payloadHash,
+
     'x-amz-date':
       amzDate
   };
 
   if (sessionToken) {
-    canonicalHeaderValues[
+    headerValues[
       'x-amz-security-token'
-    ] = sessionToken;
+    ] =
+      sessionToken;
   }
 
   const signedHeaderNames =
     Object.keys(
-      canonicalHeaderValues
+      headerValues
     )
-      .map(name =>
-        name.toLowerCase()
+      .map(
+        key =>
+          key.toLowerCase()
       )
       .sort();
 
   const canonicalHeaders =
     signedHeaderNames
-      .map(name => {
-        const value =
-          canonicalHeaderValues[
-            name
-          ];
-
-        return `${name}:${String(
-          value
-        ).trim()}\n`;
-      })
+      .map(
+        key =>
+          `${key}:${String(
+            headerValues[key]
+          )
+            .trim()
+            .replace(
+              /\s+/g,
+              ' '
+            )}\n`
+      )
       .join('');
 
   const signedHeaders =
@@ -679,32 +1004,39 @@ function createAwsAuthorization({
       ';'
     );
 
-  const canonicalRequest = [
-    method,
-    canonicalUri,
-    canonicalQueryString,
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash
-  ].join('\n');
+  // IMPORTANT:
+  // canonicalHeaders already ends with \n.
+  // Do not add another newline inside it.
+  const canonicalRequest =
+    [
+      method,
+      canonicalUri,
+      canonicalQueryString,
+      canonicalHeaders,
+      signedHeaders,
+      payloadHash
+    ].join('\n');
 
   const algorithm =
     'AWS4-HMAC-SHA256';
 
   const dateStamp =
-    getDateStamp(amzDate);
+    getDateStamp(
+      amzDate
+    );
 
   const credentialScope =
     `${dateStamp}/${region}/${service}/aws4_request`;
 
-  const stringToSign = [
-    algorithm,
-    amzDate,
-    credentialScope,
-    sha256Hex(
-      canonicalRequest
-    )
-  ].join('\n');
+  const stringToSign =
+    [
+      algorithm,
+      amzDate,
+      credentialScope,
+      sha256Hex(
+        canonicalRequest
+      )
+    ].join('\n');
 
   const kDate =
     hmacSha256(
@@ -746,9 +1078,9 @@ function createAwsAuthorization({
   };
 }
 
-/* =========================================================
-   Amazon Polly
-   ========================================================= */
+// ============================================================
+// AMAZON POLLY BACKUP
+// ============================================================
 
 async function generateWithAmazonPolly(
   text,
@@ -757,142 +1089,158 @@ async function generateWithAmazonPolly(
   const credentials =
     getAwsCredentials();
 
+  if (
+    !credentials.accessKey ||
+    !credentials.secretKey
+  ) {
+    throw new Error(
+      'AWS credentials are missing.'
+    );
+  }
+
   const region =
     getAwsRegion();
 
   const voiceId =
-    getAwsPollyVoice();
+    getPollyVoice();
 
-  const engine =
-    getAwsPollyEngine();
+  const configuredEngine =
+    getPollyEngine();
 
   const host =
     `polly.${region}.amazonaws.com`;
 
-  const createRequest =
-    async selectedEngine => {
-      const body =
-        JSON.stringify({
-          OutputFormat:
-            'mp3',
+  async function requestPolly(
+    engine
+  ) {
+    const body =
+      JSON.stringify({
+        OutputFormat:
+          'mp3',
 
-          Text:
-            text,
+        Text:
+          text,
 
-          TextType:
-            'text',
+        TextType:
+          'text',
 
-          VoiceId:
-            voiceId,
+        VoiceId:
+          voiceId,
 
-          Engine:
-            selectedEngine
-        });
-
-      const amzDate =
-        buildAmzDate();
-
-      const signing =
-        createAwsAuthorization({
-          ...credentials,
-          region,
-          host,
-          body,
-          amzDate
-        });
-
-      const headers = {
-        'Content-Type':
-          'application/json',
-
-        'Content-Length':
-          Buffer.byteLength(body),
-
-        Host:
-          host,
-
-        'X-Amz-Date':
-          amzDate,
-
-        'X-Amz-Content-Sha256':
-          signing.payloadHash,
-
-        Authorization:
-          signing.authorization
-      };
-
-      if (
-        credentials.sessionToken
-      ) {
-        headers[
-          'X-Amz-Security-Token'
-        ] =
-          credentials.sessionToken;
-      }
-
-      return requestBinary({
-        hostname:
-          host,
-
-        path:
-          '/v1/speech',
-
-        method:
-          'POST',
-
-        headers,
-
-        body
+        Engine:
+          engine
       });
+
+    const amzDate =
+      buildAmzDate();
+
+    const signing =
+      createAwsAuthorization({
+        ...credentials,
+
+        region,
+
+        host,
+
+        body,
+
+        amzDate
+      });
+
+    const headers = {
+      Host:
+        host,
+
+      'Content-Type':
+        'application/json',
+
+      'Content-Length':
+        Buffer.byteLength(
+          body
+        ),
+
+      'X-Amz-Date':
+        amzDate,
+
+      'X-Amz-Content-Sha256':
+        signing.payloadHash,
+
+      Authorization:
+        signing.authorization
     };
 
-  let audioBuffer;
+    if (
+      credentials.sessionToken
+    ) {
+      headers[
+        'X-Amz-Security-Token'
+      ] =
+        credentials.sessionToken;
+    }
+
+    return requestBinary({
+      hostname:
+        host,
+
+      path:
+        '/v1/speech',
+
+      method:
+        'POST',
+
+      headers,
+
+      body
+    });
+  }
 
   try {
-    audioBuffer =
-      await createRequest(
-        engine
+    const audio =
+      await withRetry(
+        () =>
+          requestPolly(
+            configuredEngine
+          ),
+
+        'Amazon Polly'
       );
-  } catch (error) {
+
+    return writeAudioFile(
+      outputPath,
+      audio
+    );
+  } catch (primaryError) {
     if (
-      engine === 'neural'
+      configuredEngine !==
+      'neural'
     ) {
-      console.warn(
-        '[VoiceEngine] Polly neural failed. Trying standard engine.'
+      throw primaryError;
+    }
+
+    console.warn(
+      '[VoiceEngine] Polly neural failed. Trying standard Polly engine.'
+    );
+
+    const audio =
+      await withRetry(
+        () =>
+          requestPolly(
+            'standard'
+          ),
+
+        'Amazon Polly Standard'
       );
 
-      audioBuffer =
-        await createRequest(
-          'standard'
-        );
-    } else {
-      throw error;
-    }
-  }
-
-  if (
-    !audioBuffer ||
-    audioBuffer.length <
-      MIN_AUDIO_BYTES
-  ) {
-    throw new Error(
-      'Amazon Polly returned invalid or empty audio.'
+    return writeAudioFile(
+      outputPath,
+      audio
     );
   }
-
-  fs.writeFileSync(
-    outputPath,
-    audioBuffer
-  );
-
-  return validateAudioFile(
-    outputPath
-  );
 }
 
-/* =========================================================
-   gTTS emergency fallback
-   ========================================================= */
+// ============================================================
+// gTTS EMERGENCY FALLBACK
+// ============================================================
 
 async function generateWithGTTS(
   text,
@@ -904,12 +1252,11 @@ async function generateWithGTTS(
   );
 
   return new Promise(
-    (resolve, reject) => {
+    (
+      resolve,
+      reject
+    ) => {
       try {
-        console.log(
-          '[VoiceEngine] Starting gTTS emergency fallback...'
-        );
-
         const tts =
           new gTTS(
             text,
@@ -920,7 +1267,9 @@ async function generateWithGTTS(
           outputPath,
           error => {
             if (error) {
-              reject(error);
+              reject(
+                error
+              );
               return;
             }
 
@@ -940,105 +1289,156 @@ async function generateWithGTTS(
           }
         );
       } catch (error) {
-        reject(error);
+        reject(
+          error
+        );
       }
     }
   );
 }
 
-/* =========================================================
-   Provider order
-   ========================================================= */
+// ============================================================
+// PROVIDER CONFIGURATION
+// ============================================================
+
+function providerConfigured(
+  provider
+) {
+  const name =
+    String(provider)
+      .trim()
+      .toLowerCase();
+
+  switch (name) {
+    case 'elevenlabs':
+      return Boolean(
+        getElevenLabsApiKey() &&
+        getElevenLabsVoiceId()
+      );
+
+    case 'google':
+    case 'google-cloud':
+    case 'googlecloud':
+      return Boolean(
+        getGoogleApiKey()
+      );
+
+    case 'amazon':
+    case 'polly':
+    case 'amazon-polly': {
+      const credentials =
+        getAwsCredentials();
+
+      return Boolean(
+        credentials.accessKey &&
+        credentials.secretKey
+      );
+    }
+
+    case 'gtts':
+      return true;
+
+    default:
+      return false;
+  }
+}
+
+// ============================================================
+// PROVIDER ORDER
+// ============================================================
 
 function buildProviderOrder(
   requestedProvider
 ) {
-  const order = [];
+  const providers =
+    [];
 
   const primary =
     String(
       requestedProvider ||
-        config.ttsConfig
-          ?.primaryProvider ||
-        process.env.TTS_PRIMARY_PROVIDER ||
-        'elevenlabs'
+      config?.ttsConfig
+        ?.primaryProvider ||
+      process.env.TTS_PRIMARY_PROVIDER ||
+      'elevenlabs'
     )
       .trim()
       .toLowerCase();
 
-  const addProvider =
-    provider => {
-      if (
-        !order.includes(
-          provider
-        )
-      ) {
-        order.push(
-          provider
-        );
-      }
-    };
+  function add(
+    provider
+  ) {
+    if (
+      !providers.includes(
+        provider
+      )
+    ) {
+      providers.push(
+        provider
+      );
+    }
+  }
 
-  addProvider(
+  // Primary provider first.
+  add(
     primary
   );
 
-  addProvider(
+  // Professional primary.
+  add(
     'elevenlabs'
   );
 
-  const googleBackup =
-    config.ttsConfig
-      ?.enableGoogleBackup ??
-    String(
-      process.env
-        .TTS_ENABLE_GOOGLE_BACKUP ||
-        'true'
-    ).toLowerCase() ===
-      'true';
+  const googleEnabled =
+    readBoolean(
+      config?.ttsConfig
+        ?.enableGoogleBackup ??
+        process.env
+          .TTS_ENABLE_GOOGLE_BACKUP,
+      true
+    );
 
   if (
-    googleBackup
+    googleEnabled
   ) {
-    addProvider(
+    add(
       'google'
     );
   }
 
-  const amazonBackup =
-    config.ttsConfig
-      ?.enableAmazonBackup ??
-    String(
-      process.env
-        .TTS_ENABLE_AMAZON_BACKUP ||
-        'true'
-    ).toLowerCase() ===
-      'true';
+  const amazonEnabled =
+    readBoolean(
+      config?.ttsConfig
+        ?.enableAmazonBackup ??
+        process.env
+          .TTS_ENABLE_AMAZON_BACKUP,
+      true
+    );
 
   if (
-    amazonBackup
+    amazonEnabled
   ) {
-    addProvider(
+    add(
       'amazon'
     );
   }
 
-  addProvider(
+  // Emergency-only final fallback.
+  add(
     'gtts'
   );
 
-  return order;
+  return providers;
 }
 
-/* =========================================================
-   Provider dispatcher
-   ========================================================= */
+// ============================================================
+// PROVIDER DISPATCH
+// ============================================================
 
 async function generateByProvider(
   provider,
   text,
   outputPath,
-  options
+  options = {}
 ) {
   switch (
     String(provider)
@@ -1048,7 +1448,8 @@ async function generateByProvider(
     case 'elevenlabs':
       return generateWithElevenLabs(
         text,
-        outputPath
+        outputPath,
+        options
       );
 
     case 'google':
@@ -1071,43 +1472,37 @@ async function generateByProvider(
       return generateWithGTTS(
         text,
         outputPath,
-        getGttsLanguage()
+        options.language ||
+          'en'
       );
 
     default:
       throw new Error(
-        `Unknown TTS provider: ${provider}`
+        `Unsupported TTS provider: ${provider}`
       );
   }
 }
 
-/* =========================================================
-   Main voice generation
-   ========================================================= */
+// ============================================================
+// MAIN PROFESSIONAL VOICEOVER
+// ============================================================
 
 export async function generateVoiceover(
   text,
   outputPath,
   options = {}
 ) {
-  console.log(
-    '[VoiceEngine] generateVoiceover() started.'
-  );
-
-  const narration =
-    cleanText(text);
-
-  if (!narration) {
-    throw new Error(
-      '[VoiceEngine] Voiceover text is empty.'
-    );
-  }
-
   if (!outputPath) {
     throw new Error(
       '[VoiceEngine] outputPath is required.'
     );
   }
+
+  const narration =
+    prepareNarration(
+      text,
+      options
+    );
 
   ensureOutputDirectory(
     outputPath
@@ -1119,23 +1514,59 @@ export async function generateVoiceover(
     );
 
   console.log(
-    `[VoiceEngine] Provider order: ${providers.join(
+    `[VoiceEngine] Starting professional voice generation.`
+  );
+
+  console.log(
+    `[VoiceEngine] Providers: ${providers.join(
       ' -> '
     )}`
   );
 
-  const errors = [];
+  if (
+    options.mood ||
+    options.tone ||
+    options.category
+  ) {
+    console.log(
+      `[VoiceEngine] Voice mood: ${
+        options.mood ||
+        options.tone ||
+        options.category
+      }`
+    );
+  }
+
+  const errors =
+    [];
 
   for (
-    const provider of providers
+    const provider of
+      providers
   ) {
+    if (
+      !providerConfigured(
+        provider
+      )
+    ) {
+      errors.push(
+        `${provider}: not configured`
+      );
+
+      console.warn(
+        `[VoiceEngine] Skipping ${provider}: not configured.`
+      );
+
+      continue;
+    }
+
     try {
       removeExistingFile(
         outputPath
       );
 
       console.log(
-        `[VoiceEngine] Trying provider: ${provider}`
+        `[VoiceEngine] Trying ${provider}...`
       );
 
       const result =
@@ -1146,17 +1577,17 @@ export async function generateVoiceover(
           options
         );
 
-      const validatedPath =
+      const finalPath =
         validateAudioFile(
           result ||
             outputPath
         );
 
       console.log(
-        `[VoiceEngine] Voice generated successfully with ${provider}.`
+        `[VoiceEngine] SUCCESS: professional narration generated with ${provider}.`
       );
 
-      return validatedPath;
+      return finalPath;
     } catch (error) {
       const message =
         error?.message ||
@@ -1169,29 +1600,40 @@ export async function generateVoiceover(
       console.warn(
         `[VoiceEngine] ${provider} failed: ${message}`
       );
+
+      try {
+        removeExistingFile(
+          outputPath
+        );
+      } catch (
+        cleanupError
+      ) {
+        console.warn(
+          `[VoiceEngine] Cleanup warning: ${
+            cleanupError?.message ||
+            String(cleanupError)
+          }`
+        );
+      }
     }
   }
 
   throw new Error(
-    `[VoiceEngine] All TTS providers failed.\n${errors.join(
+    `[VoiceEngine] Complete voice generation failure.\n${errors.join(
       '\n'
     )}`
   );
 }
 
-/* =========================================================
-   Scene voiceovers
-   ========================================================= */
+// ============================================================
+// SCENE-BY-SCENE PROFESSIONAL VOICEOVER
+// ============================================================
 
 export async function generateSceneVoiceovers(
   scenes,
   outputDirectory,
   options = {}
 ) {
-  console.log(
-    '[VoiceEngine] generateSceneVoiceovers() started.'
-  );
-
   if (
     !Array.isArray(
       scenes
@@ -1199,7 +1641,7 @@ export async function generateSceneVoiceovers(
     scenes.length === 0
   ) {
     throw new Error(
-      '[VoiceEngine] No scenes provided.'
+      '[VoiceEngine] No scenes supplied.'
     );
   }
 
@@ -1217,10 +1659,11 @@ export async function generateSceneVoiceovers(
   );
 
   console.log(
-    `[VoiceEngine] Scene count: ${scenes.length}`
+    `[VoiceEngine] Generating professional narration for ${scenes.length} scenes.`
   );
 
-  const results = [];
+  const results =
+    [];
 
   for (
     let index = 0;
@@ -1233,23 +1676,11 @@ export async function generateSceneVoiceovers(
     const sceneNumber =
       index + 1;
 
-    console.log(
-      `[VoiceEngine] Preparing scene ${sceneNumber}/${scenes.length} narration...`
-    );
-
     const narration =
-      cleanText(
-        scene?.narration ||
-          scene?.voiceover ||
-          scene?.text ||
-          ''
-      );
-
-    if (!narration) {
-      throw new Error(
-        `[VoiceEngine] Scene ${sceneNumber} has no narration.`
-      );
-    }
+      scene?.narration ||
+      scene?.voiceover ||
+      scene?.text ||
+      '';
 
     const outputPath =
       path.join(
@@ -1262,21 +1693,39 @@ export async function generateSceneVoiceovers(
         )}.mp3`
       );
 
+    // Allow scene-level mood/tone to reach ElevenLabs.
+    const sceneOptions =
+      {
+        ...options,
+
+        mood:
+          scene?.mood ||
+          scene?.tone ||
+          options.mood,
+
+        tone:
+          scene?.tone ||
+          options.tone,
+
+        category:
+          scene?.category ||
+          options.category,
+
+        sceneIndex:
+          index,
+
+        sceneNumber
+      };
+
     console.log(
-      `[VoiceEngine] Scene ${sceneNumber} text length: ${narration.length} characters`
+      `[VoiceEngine] Scene ${sceneNumber}/${scenes.length}: generating narration...`
     );
 
-    const generatedAudioPath =
+    const audioPath =
       await generateVoiceover(
         narration,
         outputPath,
-        options
-      );
-
-    const validatedPath =
-      validateAudioFile(
-        generatedAudioPath ||
-          outputPath
+        sceneOptions
       );
 
     results.push({
@@ -1285,29 +1734,36 @@ export async function generateSceneVoiceovers(
 
       sceneNumber,
 
-      narration,
+      narration:
+        cleanText(
+          narration
+        ),
 
       path:
-        validatedPath,
+        audioPath,
 
       outputPath:
-        validatedPath,
+        audioPath,
 
       audioPath:
-        validatedPath
+        audioPath
     });
 
     console.log(
-      `[VoiceEngine] Scene ${sceneNumber} narration complete.`
+      `[VoiceEngine] Scene ${sceneNumber}/${scenes.length}: complete.`
     );
   }
 
   console.log(
-    `[VoiceEngine] All scene narrations complete: ${results.length}/${scenes.length}`
+    `[VoiceEngine] All scene voiceovers completed successfully.`
   );
 
   return results;
 }
+
+// ============================================================
+// DEFAULT EXPORT
+// ============================================================
 
 export default {
   generateVoiceover,
