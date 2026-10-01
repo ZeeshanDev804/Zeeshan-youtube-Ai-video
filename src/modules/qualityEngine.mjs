@@ -1,3 +1,4 @@
+
 import fs from 'fs';
 import path from 'path';
 
@@ -31,10 +32,15 @@ const RISK_PATTERNS = [
 ];
 
 function text(value) {
-  return String(value || '').trim();
+  return String(value ?? '').trim();
 }
 
-function addIssue(report, type, message, severity = 'medium') {
+function addIssue(
+  report,
+  type,
+  message,
+  severity = 'medium'
+) {
   report.issues.push({
     type,
     severity,
@@ -42,14 +48,22 @@ function addIssue(report, type, message, severity = 'medium') {
   });
 }
 
-function checkStoryStructure(story, report) {
-  if (!story || typeof story !== 'object') {
+function checkStoryStructure(
+  story,
+  report
+) {
+  if (
+    !story ||
+    typeof story !== 'object' ||
+    Array.isArray(story)
+  ) {
     addIssue(
       report,
       'story_missing',
-      'Story object is missing.',
+      'Story object is missing or invalid.',
       'high'
     );
+
     return;
   }
 
@@ -71,6 +85,7 @@ function checkStoryStructure(story, report) {
       'Story scenes array is missing.',
       'high'
     );
+
     return;
   }
 
@@ -83,10 +98,29 @@ function checkStoryStructure(story, report) {
     );
   }
 
-  for (let index = 0; index < story.scenes.length; index += 1) {
+  for (
+    let index = 0;
+    index < story.scenes.length;
+    index += 1
+  ) {
     const scene = story.scenes[index];
 
-    if (!text(scene?.narration)) {
+    if (
+      !scene ||
+      typeof scene !== 'object' ||
+      Array.isArray(scene)
+    ) {
+      addIssue(
+        report,
+        'scene_structure',
+        `Scene ${index + 1} is invalid.`,
+        'high'
+      );
+
+      continue;
+    }
+
+    if (!text(scene.narration)) {
       addIssue(
         report,
         'narration',
@@ -95,7 +129,7 @@ function checkStoryStructure(story, report) {
       );
     }
 
-    if (!text(scene?.visualPrompt)) {
+    if (!text(scene.visualPrompt)) {
       addIssue(
         report,
         'visual_prompt',
@@ -104,7 +138,7 @@ function checkStoryStructure(story, report) {
       );
     }
 
-    if (!text(scene?.character)) {
+    if (!text(scene.character)) {
       addIssue(
         report,
         'character_continuity',
@@ -113,7 +147,7 @@ function checkStoryStructure(story, report) {
       );
     }
 
-    if (!text(scene?.environment)) {
+    if (!text(scene.environment)) {
       addIssue(
         report,
         'environment_continuity',
@@ -122,7 +156,7 @@ function checkStoryStructure(story, report) {
       );
     }
 
-    if (!text(scene?.action)) {
+    if (!text(scene.action)) {
       addIssue(
         report,
         'action_match',
@@ -133,7 +167,10 @@ function checkStoryStructure(story, report) {
   }
 }
 
-function checkNarrationCoverage(story, report) {
+function checkNarrationCoverage(
+  story,
+  report
+) {
   if (!Array.isArray(story?.scenes)) {
     return;
   }
@@ -153,7 +190,12 @@ function checkNarrationCoverage(story, report) {
 
   const totalWords = story.scenes.reduce(
     (total, scene) => {
-      return total + text(scene?.narration).split(/\s+/).filter(Boolean).length;
+      const narration = text(scene?.narration);
+
+      return (
+        total +
+        narration.split(/\s+/).filter(Boolean).length
+      );
     },
     0
   );
@@ -170,7 +212,10 @@ function checkNarrationCoverage(story, report) {
   report.metrics.narrationWords = totalWords;
 }
 
-function checkVisualContinuity(story, report) {
+function checkVisualContinuity(
+  story,
+  report
+) {
   if (!Array.isArray(story?.scenes)) {
     return;
   }
@@ -208,7 +253,14 @@ function checkVisualContinuity(story, report) {
   }
 }
 
-function checkRiskPatterns(story, report) {
+function checkRiskPatterns(
+  story,
+  report
+) {
+  const scenes = Array.isArray(story?.scenes)
+    ? story.scenes
+    : [];
+
   const combinedText = [
     story?.title,
     story?.hook,
@@ -220,16 +272,15 @@ function checkRiskPatterns(story, report) {
     story?.resolution,
     story?.ending,
     story?.narration,
-    ...(Array.isArray(story?.scenes)
-      ? story.scenes.flatMap(scene => [
-          scene?.narration,
-          scene?.visualPrompt,
-          scene?.action,
-          scene?.emotion
-        ])
-      : [])
+    ...scenes.flatMap(scene => [
+      scene?.narration,
+      scene?.visualPrompt,
+      scene?.action,
+      scene?.emotion
+    ])
   ]
     .map(text)
+    .filter(Boolean)
     .join(' ');
 
   for (const risk of RISK_PATTERNS) {
@@ -244,13 +295,18 @@ function checkRiskPatterns(story, report) {
   }
 }
 
-function checkRepetition(story, report) {
+function checkRepetition(
+  story,
+  report
+) {
   if (!Array.isArray(story?.scenes)) {
     return;
   }
 
   const prompts = story.scenes
-    .map(scene => text(scene?.visualPrompt).toLowerCase())
+    .map(scene =>
+      text(scene?.visualPrompt).toLowerCase()
+    )
     .filter(Boolean);
 
   const uniquePrompts = new Set(prompts);
@@ -271,7 +327,9 @@ function checkRepetition(story, report) {
   }
 
   const narrations = story.scenes
-    .map(scene => text(scene?.narration).toLowerCase())
+    .map(scene =>
+      text(scene?.narration).toLowerCase()
+    )
     .filter(Boolean);
 
   const uniqueNarrations = new Set(narrations);
@@ -292,14 +350,18 @@ function checkRepetition(story, report) {
   }
 }
 
-function checkMedia(mediaInfo, report) {
-  if (!mediaInfo) {
+function checkMedia(
+  mediaInfo,
+  report
+) {
+  if (!mediaInfo || typeof mediaInfo !== 'object') {
     addIssue(
       report,
       'media_missing',
-      'Final media information is missing.',
+      'Final media information is missing or invalid.',
       'high'
     );
+
     return;
   }
 
@@ -322,12 +384,12 @@ function checkMedia(mediaInfo, report) {
   );
 
   const hasVideo =
-    Boolean(mediaInfo.hasVideo) ||
+    mediaInfo.hasVideo === true ||
     Boolean(mediaInfo.video) ||
     width > 0;
 
   const hasAudio =
-    Boolean(mediaInfo.hasAudio) ||
+    mediaInfo.hasAudio === true ||
     Boolean(mediaInfo.audio);
 
   report.metrics.width = width;
@@ -361,17 +423,24 @@ function checkMedia(mediaInfo, report) {
     );
   }
 
-  if (duration < 20 || duration > 59) {
+  if (
+    !Number.isFinite(duration) ||
+    duration < 20 ||
+    duration > 59
+  ) {
     addIssue(
       report,
       'duration',
-      `Final duration ${duration.toFixed(2)}s is outside the 20-59 second range.`,
+      `Final duration ${Number.isFinite(duration) ? duration.toFixed(2) : 'invalid'}s is outside the 20-59 second range.`,
       'high'
     );
   }
 }
 
-function checkOriginalityMetadata(story, report) {
+function checkOriginalityMetadata(
+  story,
+  report
+) {
   const sourceFields = [
     story?.source,
     story?.sourceUrl,
@@ -415,7 +484,10 @@ export function runQualityCheck({
     generatedAt: new Date().toISOString()
   };
 
-  checkStoryStructure(story, report);
+  checkStoryStructure(
+    story,
+    report
+  );
 
   report.checks.storyStructure =
     !report.issues.some(
@@ -425,16 +497,23 @@ export function runQualityCheck({
         issue.type === 'story_missing'
     );
 
-  checkNarrationCoverage(story, report);
+  checkNarrationCoverage(
+    story,
+    report
+  );
 
   report.checks.narrationCoverage =
     !report.issues.some(
       issue =>
         issue.type === 'narration' ||
-        issue.type === 'narration_coverage'
+        issue.type === 'narration_coverage' ||
+        issue.type === 'narration_too_short'
     );
 
-  checkVisualContinuity(story, report);
+  checkVisualContinuity(
+    story,
+    report
+  );
 
   report.checks.visualContinuity =
     !report.issues.some(
@@ -443,7 +522,10 @@ export function runQualityCheck({
         issue.type === 'environment_continuity'
     );
 
-  checkRepetition(story, report);
+  checkRepetition(
+    story,
+    report
+  );
 
   report.checks.repetitionRisk =
     !report.issues.some(
@@ -452,16 +534,24 @@ export function runQualityCheck({
         issue.type === 'repetitive_narration'
     );
 
-  checkOriginalityMetadata(story, report);
+  checkOriginalityMetadata(
+    story,
+    report
+  );
 
+  checkRiskPatterns(
+    story,
+    report
+  );
+
+  // Calculate originality after all relevant risks
+  // have been collected.
   report.checks.originalityRisk =
     !report.issues.some(
       issue =>
         issue.type === 'copyright_risk' ||
         issue.type === 'source_review'
     );
-
-  checkRiskPatterns(story, report);
 
   report.checks.safetyRisk =
     !report.issues.some(
@@ -470,7 +560,10 @@ export function runQualityCheck({
         issue.type === 'misleading_ai'
     );
 
-  checkMedia(mediaInfo, report);
+  checkMedia(
+    mediaInfo,
+    report
+  );
 
   report.checks.mediaQuality =
     !report.issues.some(
@@ -490,7 +583,9 @@ export function runQualityCheck({
     issue => issue.severity === 'medium'
   );
 
-  report.blocked = highRiskIssues.length > 0;
+  report.blocked =
+    highRiskIssues.length > 0;
+
   report.reviewRequired =
     mediumRiskIssues.length > 0;
 
@@ -513,7 +608,9 @@ export function saveQualityReport(
 
   fs.mkdirSync(
     path.dirname(outputPath),
-    { recursive: true }
+    {
+      recursive: true
+    }
   );
 
   fs.writeFileSync(
