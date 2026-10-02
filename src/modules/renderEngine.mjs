@@ -795,29 +795,24 @@ async function prepareBackgroundMusic(
     }
   );
 
-  let sourceIsReadable =
-    false;
+  assertFile(
+    musicPath,
+    'Background music'
+  );
+
+  let musicInfo;
 
   try {
-    assertFile(
-      musicPath,
-      'Background music'
-    );
-
     const probe =
       await runFFprobe([
         '-v',
         'error',
-
         '-select_streams',
         'a:0',
-
         '-show_entries',
         'stream=codec_name,duration',
-
         '-of',
         'json',
-
         musicPath
       ]);
 
@@ -826,67 +821,46 @@ async function prepareBackgroundMusic(
         probe.stdout
       );
 
-    const streams =
+    const stream =
       Array.isArray(
         data?.streams
       )
-        ? data.streams
-        : [];
+        ? data.streams[0]
+        : null;
 
-    sourceIsReadable =
-      Boolean(
-        streams[0]?.codec_name
+    if (!stream?.codec_name) {
+      throw new Error(
+        'No readable audio stream found.'
       );
+    }
+
+    musicInfo = {
+      codec:
+        stream.codec_name,
+
+      duration:
+        Number(
+          stream.duration || 0
+        )
+    };
   } catch (error) {
-    console.warn(
-      `[RenderEngine] Background music validation failed: ${error.message}`
+    throw new Error(
+      `[RenderEngine] Background music is missing/corrupt/unreadable: ${
+        error?.message ||
+        error
+      }`
     );
   }
 
-  async function createSilentBackgroundMusic() {
-    await runFFmpeg([
-      '-y',
-
-      '-f',
-      'lavfi',
-
-      '-i',
-      'anullsrc=channel_layout=stereo:sample_rate=48000',
-
-      '-t',
-      requestedDuration.toFixed(3),
-
-      '-vn',
-
-      '-c:a',
-      'aac',
-
-      '-b:a',
-      '192k',
-
-      '-ar',
-      '48000',
-
-      '-ac',
-      '2',
-
-      outputPath
-    ]);
-
-    assertFile(
-      outputPath,
-      'Silent background music'
+  if (
+    !Number.isFinite(
+      musicInfo.duration
+    ) ||
+    musicInfo.duration <= 0
+  ) {
+    throw new Error(
+      `[RenderEngine] Background music has invalid duration: ${musicInfo.duration}`
     );
-
-    return outputPath;
-  }
-
-  if (!sourceIsReadable) {
-    console.warn(
-      '[RenderEngine] Invalid/corrupt background music detected. Using silent fallback.'
-    );
-
-    return createSilentBackgroundMusic();
   }
 
   try {
@@ -908,6 +882,12 @@ async function prepareBackgroundMusic(
       [
         `volume=${MUSIC_VOLUME}`,
         'aresample=48000',
+        'asetpts=N/SR/TB',
+        'afade=t=in:st=0:d=1',
+        `afade=t=out:st=${Math.max(
+          0,
+          requestedDuration - 1
+        ).toFixed(3)}:d=1`,
         `apad=pad_dur=${requestedDuration.toFixed(3)}`,
         `atrim=duration=${requestedDuration.toFixed(3)}`,
         'asetpts=N/SR/TB'
@@ -935,15 +915,12 @@ async function prepareBackgroundMusic(
 
     return outputPath;
   } catch (error) {
-    console.warn(
-      `[RenderEngine] Music processing failed: ${error.message}`
+    throw new Error(
+      `[RenderEngine] Background music processing failed: ${
+        error?.message ||
+        error
+      }`
     );
-
-    console.warn(
-      '[RenderEngine] Falling back to silent background music.'
-    );
-
-    return createSilentBackgroundMusic();
   }
 }
 
@@ -993,7 +970,9 @@ async function mixNarrationWithMusic(
 
     '[1:a]aresample=48000,asetpts=PTS-STARTPTS[music]',
 
-    '[narration][music]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[mixed]',
+    '[music][narration]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=500:makeup=1[duckedMusic]',
+
+    '[narration][duckedMusic]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[mixed]',
 
     `[mixed]atrim=duration=${requestedDuration.toFixed(3)},asetpts=N/SR/TB[outa]`
   ].join(';');
@@ -1270,10 +1249,6 @@ async function renderFinalVideo(
   );
 
   try {
-    // -----------------------------------------------------
-    // 1. SCENE VIDEOS
-    // -----------------------------------------------------
-
     const combinedVideoPath =
       await combineVideos(
         videoPaths,
@@ -1281,20 +1256,12 @@ async function renderFinalVideo(
         workingDirectory
       );
 
-    // -----------------------------------------------------
-    // 2. SCENE NARRATION
-    // -----------------------------------------------------
-
     const completeNarrationPath =
       await createTimedAudio(
         sceneAudioPaths,
         sceneDurations,
         workingDirectory
       );
-
-    // -----------------------------------------------------
-    // 3. EXPECTED DURATION
-    // -----------------------------------------------------
 
     const expectedDuration =
       sceneDurations.reduce(
@@ -1320,10 +1287,6 @@ async function renderFinalVideo(
       );
     }
 
-    // -----------------------------------------------------
-    // 4. BACKGROUND MUSIC
-    // -----------------------------------------------------
-
     const backgroundMusicPath =
       getBackgroundMusicPath(
         options
@@ -1335,10 +1298,6 @@ async function renderFinalVideo(
         expectedDuration,
         workingDirectory
       );
-
-    // -----------------------------------------------------
-    // 5. MIX AUDIO
-    // -----------------------------------------------------
 
     const mixedAudioPath =
       path.join(
@@ -1353,10 +1312,6 @@ async function renderFinalVideo(
       mixedAudioPath
     );
 
-    // -----------------------------------------------------
-    // 6. FINAL MP4
-    // -----------------------------------------------------
-
     const renderedPath =
       path.join(
         workingDirectory,
@@ -1369,27 +1324,15 @@ async function renderFinalVideo(
       renderedPath
     );
 
-    // -----------------------------------------------------
-    // 7. VALIDATE TEMP FINAL
-    // -----------------------------------------------------
-
     await validateRenderedVideo(
       renderedPath,
       expectedDuration
     );
 
-    // -----------------------------------------------------
-    // 8. COPY TO FINAL OUTPUT
-    // -----------------------------------------------------
-
     fs.copyFileSync(
       renderedPath,
       outputPath
     );
-
-    // -----------------------------------------------------
-    // 9. VALIDATE FINAL OUTPUT
-    // -----------------------------------------------------
 
     const finalInfo =
       await validateRenderedVideo(
