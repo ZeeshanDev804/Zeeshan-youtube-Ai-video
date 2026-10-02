@@ -7,23 +7,14 @@ import { config } from '../config/index.mjs';
 const PEXELS_API_URL =
   'https://api.pexels.com/videos/search';
 
-const MIN_FILE_SIZE =
-  50 * 1024;
-
-const MAX_QUERY_LENGTH =
-  180;
-
-const MAX_RESULTS_PER_QUERY =
-  15;
-
-const MAX_CANDIDATES =
-  45;
-
-const MIN_VISUAL_CONFIDENCE =
-  20;
+const MIN_FILE_SIZE = 50 * 1024;
+const MAX_QUERY_LENGTH = 180;
+const MAX_RESULTS_PER_QUERY = 15;
+const MAX_CANDIDATES = 45;
+const MIN_VISUAL_CONFIDENCE = 20;
 
 // ============================================================
-// TEXT HELPERS
+// BASIC HELPERS
 // ============================================================
 
 function cleanText(value) {
@@ -40,7 +31,7 @@ function ensureDirectory(directory) {
   }
 }
 
-function normalizeForMatching(value) {
+function normalizeText(value) {
   return cleanText(value)
     .toLowerCase()
     .replace(/[^\w\s-]/g, ' ')
@@ -49,20 +40,21 @@ function normalizeForMatching(value) {
 }
 
 function getWords(value) {
-  return normalizeForMatching(value)
+  const text = normalizeText(value);
+
+  if (!text) {
+    return [];
+  }
+
+  return text
     .split(/\s+/)
-    .filter(word =>
-      word.length >= 3
-    );
+    .filter(word => word.length >= 3);
 }
 
 function uniqueWords(values = []) {
   return [
     ...new Set(
-      values
-        .flatMap(value =>
-          getWords(value)
-        )
+      values.flatMap(value => getWords(value))
     )
   ];
 }
@@ -104,7 +96,6 @@ const STOP_WORDS = new Set([
   'could',
   'should',
   'being',
-  'onto',
   'same',
   'story',
   'scene',
@@ -126,13 +117,69 @@ const STOP_WORDS = new Set([
 
 function removeStopWords(words) {
   return words.filter(
-    word =>
-      !STOP_WORDS.has(word)
+    word => !STOP_WORDS.has(word)
   );
 }
 
 // ============================================================
-// STORY VISUAL PROMPT
+// SCENE DATA
+// ============================================================
+
+function getSceneObject(scene) {
+  return cleanText(
+    scene?.importantObject ||
+    scene?.important_object ||
+    scene?.object
+  );
+}
+
+function getSceneCharacter(scene, story = {}) {
+  return cleanText(
+    scene?.character ||
+    story?.character
+  );
+}
+
+function validateScene(scene, index) {
+  if (!scene) {
+    throw new Error(
+      `[VisualEngine] Scene ${index + 1} is missing.`
+    );
+  }
+
+  if (!cleanText(scene.narration)) {
+    throw new Error(
+      `[VisualEngine] Scene ${index + 1} has no narration.`
+    );
+  }
+
+  if (!cleanText(scene.action)) {
+    throw new Error(
+      `[VisualEngine] Scene ${index + 1} has no action.`
+    );
+  }
+
+  if (!cleanText(scene.environment)) {
+    throw new Error(
+      `[VisualEngine] Scene ${index + 1} has no environment.`
+    );
+  }
+
+  if (!getSceneCharacter(scene)) {
+    throw new Error(
+      `[VisualEngine] Scene ${index + 1} has no character continuity data.`
+    );
+  }
+
+  if (!cleanText(scene.visualPrompt)) {
+    throw new Error(
+      `[VisualEngine] Scene ${index + 1} has no visual prompt.`
+    );
+  }
+}
+
+// ============================================================
+// CONTINUITY PROMPT
 // ============================================================
 
 function buildContinuityPrompt(
@@ -141,42 +188,25 @@ function buildContinuityPrompt(
   index = 0
 ) {
   const character =
-    cleanText(
-      scene?.character ||
-      story?.character
-    );
+    getSceneCharacter(scene, story);
 
   const environment =
-    cleanText(
-      scene?.environment
-    );
+    cleanText(scene.environment);
 
   const action =
-    cleanText(
-      scene?.action
-    );
+    cleanText(scene.action);
 
   const emotion =
-    cleanText(
-      scene?.emotion
-    );
+    cleanText(scene.emotion);
 
-  const importantObject =
-    cleanText(
-      scene?.importantObject ||
-      scene?.important_object ||
-      scene?.object
-    );
+  const object =
+    getSceneObject(scene);
 
   const narration =
-    cleanText(
-      scene?.narration
-    );
+    cleanText(scene.narration);
 
-  const originalPrompt =
-    cleanText(
-      scene?.visualPrompt
-    );
+  const visualPrompt =
+    cleanText(scene.visualPrompt);
 
   return [
     'Professional vertical cinematic story scene.',
@@ -186,19 +216,19 @@ function buildContinuityPrompt(
     `Environment: ${environment}.`,
     `Exact physical action: ${action}.`,
     `Emotion: ${emotion}.`,
-    `Important object: ${importantObject}.`,
-    `Original visual direction: ${originalPrompt}.`,
-    'The visual must directly represent the narrated event.',
-    'The exact physical action should be visible whenever possible.',
-    'Do not substitute unrelated footage.',
-    'Maintain character appearance continuity.',
-    'Maintain hairstyle, clothing, accessories and approximate age.',
-    'Maintain important objects across connected scenes.',
-    'Maintain environment continuity unless the story explicitly changes location.',
+    `Important object: ${object}.`,
+    `Visual direction: ${visualPrompt}.`,
+    'The visual must directly support the narration.',
+    'The physical action should be visible whenever possible.',
+    'Do not use unrelated footage.',
+    'Keep character appearance consistent.',
+    'Keep clothing, hairstyle and important accessories consistent.',
+    'Keep important objects consistent.',
+    'Keep the environment consistent unless the story changes location.',
     'Professional short-film composition.',
     'Natural lighting.',
-    'Realistic visual style.',
-    'Vertical 9:16 framing.',
+    'Realistic footage.',
+    'Vertical 9:16 composition.',
     'No text overlays.',
     'No logos.',
     'No watermark.'
@@ -206,7 +236,7 @@ function buildContinuityPrompt(
 }
 
 // ============================================================
-// SEARCH QUERY HELPERS
+// QUERY HELPERS
 // ============================================================
 
 function sanitizeQuery(query) {
@@ -214,107 +244,29 @@ function sanitizeQuery(query) {
     .replace(/[^\w\s-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(
-      0,
-      MAX_QUERY_LENGTH
-    );
+    .slice(0, MAX_QUERY_LENGTH);
 }
 
-function buildSearchQuery(
-  scene
-) {
+function buildSearchQueries(scene) {
   const narration =
-    cleanText(
-      scene?.narration
-    );
+    cleanText(scene.narration);
 
   const action =
-    cleanText(
-      scene?.action
-    );
+    cleanText(scene.action);
 
   const environment =
-    cleanText(
-      scene?.environment
-    );
+    cleanText(scene.environment);
 
   const emotion =
-    cleanText(
-      scene?.emotion
-    );
+    cleanText(scene.emotion);
 
-  const importantObject =
-    cleanText(
-      scene?.importantObject ||
-      scene?.important_object ||
-      scene?.object
-    );
-
-  const rawWords =
-    uniqueWords([
-      action,
-      importantObject,
-      environment,
-      narration,
-      emotion
-    ]);
-
-  const usefulWords =
-    removeStopWords(
-      rawWords
-    );
-
-  const selectedWords =
-    usefulWords.slice(
-      0,
-      14
-    );
-
-  return sanitizeQuery(
-    [
-      ...selectedWords,
-      'realistic',
-      'vertical'
-    ]
-      .filter(Boolean)
-      .join(' ')
-  );
-}
-
-function buildSearchQueries(
-  scene
-) {
-  const narration =
-    cleanText(
-      scene?.narration
-    );
-
-  const action =
-    cleanText(
-      scene?.action
-    );
-
-  const environment =
-    cleanText(
-      scene?.environment
-    );
-
-  const importantObject =
-    cleanText(
-      scene?.importantObject ||
-      scene?.important_object ||
-      scene?.object
-    );
-
-  const emotion =
-    cleanText(
-      scene?.emotion
-    );
+  const object =
+    getSceneObject(scene);
 
   const queries = [
     [
       action,
-      importantObject,
+      object,
       environment
     ],
 
@@ -324,7 +276,7 @@ function buildSearchQueries(
     ],
 
     [
-      importantObject,
+      object,
       action,
       environment
     ],
@@ -350,47 +302,28 @@ function buildSearchQueries(
     .filter(Boolean);
 
   return [
-    ...new Set(
-      queries
-    )
+    ...new Set(queries)
   ];
 }
 
 // ============================================================
-// VIDEO FILE QUALITY SCORE
+// VIDEO FILE SCORE
 // ============================================================
 
-function scoreVideoFile(
-  file
-) {
+function scoreVideoFile(file) {
   const width =
-    Number(
-      file?.width || 0
-    );
+    Number(file?.width || 0);
 
   const height =
-    Number(
-      file?.height || 0
-    );
-
-  const isVertical =
-    height > width;
-
-  const isSquare =
-    height === width &&
-    height > 0;
+    Number(file?.height || 0);
 
   const resolution =
     width * height;
 
   let score = 0;
 
-  if (isVertical) {
+  if (height > width) {
     score += 100;
-  }
-
-  if (isSquare) {
-    score += 10;
   }
 
   if (width >= 720) {
@@ -410,9 +343,7 @@ function scoreVideoFile(
   }
 
   if (
-    String(
-      file?.file_type || ''
-    )
+    String(file?.file_type || '')
       .toLowerCase()
       .includes('mp4')
   ) {
@@ -431,60 +362,43 @@ function scoreVideoFile(
 // PEXELS SEARCH
 // ============================================================
 
-async function searchPexelsVideos(
-  query
-) {
-  if (
-    !cleanText(
-      config?.pexelsApiKey
-    )
-  ) {
+async function searchPexelsVideos(query) {
+  if (!cleanText(config?.pexelsApiKey)) {
     throw new Error(
       '[VisualEngine] PEXELS_API_KEY is missing.'
     );
   }
 
   const safeQuery =
-    sanitizeQuery(
-      query
-    );
+    sanitizeQuery(query);
 
   if (!safeQuery) {
     throw new Error(
-      '[VisualEngine] Pexels search query is empty.'
+      '[VisualEngine] Empty Pexels search query.'
     );
   }
 
   let response;
 
   try {
-    response =
-      await axios.get(
-        PEXELS_API_URL,
-        {
-          headers: {
-            Authorization:
-              config.pexelsApiKey
-          },
+    response = await axios.get(
+      PEXELS_API_URL,
+      {
+        headers: {
+          Authorization:
+            config.pexelsApiKey
+        },
 
-          params: {
-            query:
-              safeQuery,
+        params: {
+          query: safeQuery,
+          orientation: 'portrait',
+          size: 'large',
+          per_page: MAX_RESULTS_PER_QUERY
+        },
 
-            orientation:
-              'portrait',
-
-            size:
-              'large',
-
-            per_page:
-              MAX_RESULTS_PER_QUERY
-          },
-
-          timeout:
-            30000
-        }
-      );
+        timeout: 30000
+      }
+    );
   } catch (error) {
     const status =
       error?.response?.status;
@@ -495,60 +409,41 @@ async function searchPexelsVideos(
       'Unknown Pexels error';
 
     throw new Error(
-      `[VisualEngine] Pexels API request failed${
-        status
-          ? ` (${status})`
-          : ''
+      `[VisualEngine] Pexels request failed${
+        status ? ` (${status})` : ''
       }: ${message}`
     );
   }
 
   const videos =
-    Array.isArray(
-      response?.data?.videos
-    )
+    Array.isArray(response?.data?.videos)
       ? response.data.videos
       : [];
-
-  if (
-    videos.length === 0
-  ) {
-    return [];
-  }
 
   return videos
     .map(video => {
       const files =
-        Array.isArray(
-          video?.video_files
-        )
+        Array.isArray(video?.video_files)
           ? video.video_files
           : [];
 
-      const sortedFiles =
+      const bestFile =
         files
           .filter(file =>
-            String(
-              file?.file_type || ''
-            )
+            String(file?.file_type || '')
               .toLowerCase()
               .includes('mp4')
           )
           .filter(file =>
-            file?.link
+            Boolean(file?.link)
           )
           .sort(
             (a, b) =>
               scoreVideoFile(b) -
               scoreVideoFile(a)
-          );
+          )[0];
 
-      const bestFile =
-        sortedFiles[0];
-
-      if (
-        !bestFile?.link
-      ) {
+      if (!bestFile?.link) {
         return null;
       }
 
@@ -560,52 +455,38 @@ async function searchPexelsVideos(
           bestFile.link,
 
         width:
-          Number(
-            bestFile.width || 0
-          ),
+          Number(bestFile.width || 0),
 
         height:
-          Number(
-            bestFile.height || 0
-          ),
+          Number(bestFile.height || 0),
 
         duration:
-          Number(
-            video?.duration || 0
-          ),
+          Number(video?.duration || 0),
 
-        provider:
-          'pexels',
+        provider: 'pexels',
 
-        source:
-          'pexels',
+        source: 'pexels',
 
         photographer:
           cleanText(
-            video?.user?.name ||
-            ''
+            video?.user?.name || ''
           ),
 
         searchQuery:
           safeQuery,
 
         fileScore:
-          scoreVideoFile(
-            bestFile
-          )
+          scoreVideoFile(bestFile)
       };
     })
     .filter(Boolean);
 }
 
 // ============================================================
-// QUERY MATCH SCORING
+// SEMANTIC SEARCH CONFIDENCE
 // ============================================================
 
-function scoreQueryMatch(
-  candidate,
-  scene
-) {
+function scoreQueryMatch(candidate, scene) {
   const queryWords =
     new Set(
       removeStopWords(
@@ -615,192 +496,149 @@ function scoreQueryMatch(
       )
     );
 
-  const actionWords =
-    removeStopWords(
-      getWords(
-        scene?.action
-      )
-    );
-
-  const environmentWords =
-    removeStopWords(
-      getWords(
-        scene?.environment
-      )
-    );
-
-  const objectWords =
-    removeStopWords(
-      getWords(
-        scene?.importantObject ||
-        scene?.important_object ||
-        scene?.object
-      )
-    );
-
-  const emotionWords =
-    removeStopWords(
-      getWords(
-        scene?.emotion
-      )
-    );
-
-  const weightedGroups = [
+  const groups = [
     {
       words:
-        actionWords,
-      weight:
-        5
+        removeStopWords(
+          getWords(scene?.action)
+        ),
+      weight: 5
     },
 
     {
       words:
-        objectWords,
-      weight:
-        3
+        removeStopWords(
+          getWords(getSceneObject(scene))
+        ),
+      weight: 3
     },
 
     {
       words:
-        environmentWords,
-      weight:
-        2
+        removeStopWords(
+          getWords(scene?.environment)
+        ),
+      weight: 2
     },
 
     {
       words:
-        emotionWords,
-      weight:
-        1
+        removeStopWords(
+          getWords(scene?.emotion)
+        ),
+      weight: 1
     }
   ];
 
-  let possibleWeight =
-    0;
+  let possible = 0;
+  let matched = 0;
 
-  let matchedWeight =
-    0;
-
-  for (
-    const group of
-      weightedGroups
-  ) {
-    if (
-      group.words.length ===
-      0
-    ) {
+  for (const group of groups) {
+    if (group.words.length === 0) {
       continue;
     }
 
-    possibleWeight +=
+    possible +=
       group.words.length *
       group.weight;
 
-    for (
-      const word of
-        group.words
-    ) {
-      if (
-        queryWords.has(word)
-      ) {
-        matchedWeight +=
-          group.weight;
+    for (const word of group.words) {
+      if (queryWords.has(word)) {
+        matched += group.weight;
       }
     }
   }
 
-  if (
-    possibleWeight === 0
-  ) {
+  if (possible === 0) {
     return 0;
   }
 
   return Math.round(
-    (
-      matchedWeight /
-      possibleWeight
-    ) *
-    100
+    (matched / possible) * 100
   );
 }
 
 // ============================================================
-// CANDIDATE SELECTION
+// VISUAL SELECTION
 // ============================================================
 
 function selectBestVisual(
   candidates,
   scene,
-  index
+  index,
+  usedVisualIds = new Set()
 ) {
   if (
-    !Array.isArray(
-      candidates
-    ) ||
+    !Array.isArray(candidates) ||
     candidates.length === 0
   ) {
     return null;
   }
 
-  const scored =
-    candidates.map(
-      candidate => {
-        const semanticScore =
-          scoreQueryMatch(
-            candidate,
-            scene
-          );
+  const available =
+    candidates.filter(candidate => {
+      const identity =
+        candidate?.id ||
+        candidate?.url;
 
-        const technicalScore =
-          Math.min(
-            Number(
-              candidate.fileScore ||
-              0
-            ),
-            275
-          );
+      return (
+        identity &&
+        !usedVisualIds.has(identity)
+      );
+    });
 
-        const durationScore =
-          Number(
-            candidate.duration ||
-            0
-          ) > 0
-            ? 10
-            : 0;
-
-        const verticalBonus =
-          Number(
-            candidate.height ||
-            0
-          ) >
-          Number(
-            candidate.width ||
-            0
-          )
-            ? 25
-            : 0;
-
-        const finalScore =
-          semanticScore * 4 +
-          technicalScore +
-          durationScore +
-          verticalBonus;
-
-        return {
-          ...candidate,
-
-          semanticScore,
-
-          technicalScore,
-
-          durationScore,
-
-          verticalBonus,
-
-          finalScore
-        };
-      }
+  if (available.length === 0) {
+    throw new Error(
+      `[VisualEngine] All candidate visuals for scene ${
+        index + 1
+      } were already used.`
     );
+  }
+
+  const scored =
+    available.map(candidate => {
+      const semanticScore =
+        scoreQueryMatch(
+          candidate,
+          scene
+        );
+
+      const technicalScore =
+        Math.min(
+          Number(
+            candidate.fileScore || 0
+          ),
+          275
+        );
+
+      const durationScore =
+        Number(
+          candidate.duration || 0
+        ) > 0
+          ? 10
+          : 0;
+
+      const verticalBonus =
+        Number(candidate.height || 0) >
+        Number(candidate.width || 0)
+          ? 25
+          : 0;
+
+      const finalScore =
+        semanticScore * 4 +
+        technicalScore +
+        durationScore +
+        verticalBonus;
+
+      return {
+        ...candidate,
+        semanticScore,
+        technicalScore,
+        durationScore,
+        verticalBonus,
+        finalScore
+      };
+    });
 
   scored.sort(
     (a, b) =>
@@ -814,31 +652,14 @@ function selectBestVisual(
   console.log(
     `[VisualEngine] Scene ${
       index + 1
-    } visual candidate scores:`
+    } selected visual ${
+      selected.id || 'unknown'
+    } | semantic=${
+      selected.semanticScore
+    } | total=${
+      selected.finalScore
+    }`
   );
-
-  for (
-    const candidate of
-      scored.slice(
-        0,
-        5
-      )
-  ) {
-    console.log(
-      `[VisualEngine] Candidate ${
-        candidate.id ||
-        'unknown'
-      } | semantic=${
-        candidate.semanticScore
-      } | technical=${
-        candidate.technicalScore
-      } | duration=${
-        candidate.durationScore
-      } | total=${
-        candidate.finalScore
-      }`
-    );
-  }
 
   return selected;
 }
@@ -847,76 +668,15 @@ function selectBestVisual(
 // VISUAL MATCH VALIDATION
 // ============================================================
 
-function validateVisualMatchScore(
+function validateVisualMatch(
   visual,
   scene,
   index
 ) {
   const semanticScore =
     Number(
-      visual?.semanticScore ||
-      0
+      visual?.semanticScore || 0
     );
-
-  const action =
-    cleanText(
-      scene?.action
-    );
-
-  const environment =
-    cleanText(
-      scene?.environment
-    );
-
-  const importantObject =
-    cleanText(
-      scene?.importantObject ||
-      scene?.important_object ||
-      scene?.object
-    );
-
-  if (
-    action.length <
-    10
-  ) {
-    throw new Error(
-      `[VisualEngine] Scene ${
-        index + 1
-      } action direction is too weak.`
-    );
-  }
-
-  if (
-    environment.length <
-    5
-  ) {
-    throw new Error(
-      `[VisualEngine] Scene ${
-        index + 1
-      } environment direction is too weak.`
-    );
-  }
-
-  if (
-    !importantObject
-  ) {
-    console.warn(
-      `[VisualEngine] Scene ${
-        index + 1
-      } has no important object. Continuing because an object may not be required for every story event.`
-    );
-  }
-
-  /*
-   * IMPORTANT:
-   *
-   * Pexels search results do not provide true frame-level
-   * semantic verification.
-   *
-   * Therefore this score is a SEARCH-CONFIDENCE signal.
-   * It must never be described as proof that the actual
-   * frames contain the exact narrated action.
-   */
 
   if (
     semanticScore <
@@ -925,88 +685,22 @@ function validateVisualMatchScore(
     throw new Error(
       `[VisualEngine] Scene ${
         index + 1
-      } visual search confidence is too low (${semanticScore}). Refusing weak/unrelated footage.`
+      } visual confidence is too low: ${
+        semanticScore
+      }.`
     );
   }
+
+  /*
+   * IMPORTANT:
+   * Pexels search confidence is not frame-level
+   * semantic verification.
+   *
+   * This system therefore never claims that search
+   * matching proves the exact frame content.
+   */
 
   return true;
-}
-
-// ============================================================
-// SCENE VALIDATION
-// ============================================================
-
-function validateSceneVisual(
-  scene,
-  index
-) {
-  if (!scene) {
-    throw new Error(
-      `[VisualEngine] Scene ${
-        index + 1
-      } is missing.`
-    );
-  }
-
-  if (
-    !cleanText(
-      scene.visualPrompt
-    )
-  ) {
-    throw new Error(
-      `[VisualEngine] Scene ${
-        index + 1
-      } has no visual prompt.`
-    );
-  }
-
-  if (
-    !cleanText(
-      scene.narration
-    )
-  ) {
-    throw new Error(
-      `[VisualEngine] Scene ${
-        index + 1
-      } has no narration.`
-    );
-  }
-
-  if (
-    !cleanText(
-      scene.action
-    )
-  ) {
-    throw new Error(
-      `[VisualEngine] Scene ${
-        index + 1
-      } has no action description.`
-    );
-  }
-
-  if (
-    !cleanText(
-      scene.character
-    )
-  ) {
-    throw new Error(
-      `[VisualEngine] Scene ${
-        index + 1
-      } has no character continuity data.`
-    );
-  }
-
-  if (
-    !cleanText(
-      scene.environment
-    )
-  ) {
-    throw new Error(
-      `[VisualEngine] Scene ${
-        index + 1
-      } has no environment continuity data.`
-    );
-  }
 }
 
 // ============================================================
@@ -1016,9 +710,10 @@ function validateSceneVisual(
 export async function findVisualForScene(
   scene,
   story = {},
-  index = 0
+  index = 0,
+  usedVisualIds = new Set()
 ) {
-  validateSceneVisual(
+  validateScene(
     scene,
     index
   );
@@ -1030,52 +725,22 @@ export async function findVisualForScene(
       index
     );
 
-  const primaryQuery =
-    buildSearchQuery(
-      scene
-    );
-
-  const searchQueries =
+  const queries =
     buildSearchQueries(
       scene
     );
 
-  if (
-    primaryQuery &&
-    !searchQueries.includes(
-      primaryQuery
-    )
-  ) {
-    searchQueries.unshift(
-      primaryQuery
+  if (queries.length === 0) {
+    throw new Error(
+      `[VisualEngine] Scene ${
+        index + 1
+      } produced no usable visual search query.`
     );
   }
 
   console.log(
-    `[VisualEngine] ========================================`
-  );
-
-  console.log(
     `[VisualEngine] Scene ${
       index + 1
-    } visual planning`
-  );
-
-  console.log(
-    `[VisualEngine] Narration: ${
-      scene.narration
-    }`
-  );
-
-  console.log(
-    `[VisualEngine] Character: ${
-      scene.character
-    }`
-  );
-
-  console.log(
-    `[VisualEngine] Environment: ${
-      scene.environment
     }`
   );
 
@@ -1086,63 +751,39 @@ export async function findVisualForScene(
   );
 
   console.log(
-    `[VisualEngine] Emotion: ${
-      scene.emotion || ''
+    `[VisualEngine] Environment: ${
+      scene.environment
     }`
   );
 
   console.log(
-    `[VisualEngine] Object: ${
-      scene.importantObject ||
-      ''
+    `[VisualEngine] Character: ${
+      getSceneCharacter(scene, story)
     }`
   );
 
   console.log(
     `[VisualEngine] Search queries: ${
-      JSON.stringify(
-        searchQueries
-      )
+      JSON.stringify(queries)
     }`
   );
 
-  console.log(
-    `[VisualEngine] Continuity prompt prepared.`
-  );
+  let allResults = [];
 
-  console.log(
-    `[VisualEngine] ========================================`
-  );
-
-  let allResults =
-    [];
-
-  for (
-    const query of
-      searchQueries
-  ) {
+  for (const query of queries) {
     try {
       const results =
         await searchPexelsVideos(
           query
         );
 
-      if (
-        results.length > 0
-      ) {
-        allResults.push(
-          ...results
-        );
-      }
+      allResults.push(
+        ...results
+      );
     } catch (error) {
       console.warn(
-        `[VisualEngine] Search query failed: ${query}`
-      );
-
-      console.warn(
-        `[VisualEngine] Reason: ${
-          error?.message ||
-          error
+        `[VisualEngine] Search failed for "${query}": ${
+          error?.message || error
         }`
       );
     }
@@ -1155,36 +796,23 @@ export async function findVisualForScene(
     }
   }
 
-  /*
-   * Remove duplicate Pexels videos.
-   */
+  const uniqueResults = [];
+  const seen = new Set();
 
-  const uniqueResults =
-    [];
-
-  const seenIds =
-    new Set();
-
-  for (
-    const result of
-      allResults
-  ) {
-    const id =
+  for (const result of allResults) {
+    const identity =
       result?.id ||
       result?.url;
 
     if (
-      !id ||
-      seenIds.has(id)
+      !identity ||
+      seen.has(identity)
     ) {
       continue;
     }
 
-    seenIds.add(id);
-
-    uniqueResults.push(
-      result
-    );
+    seen.add(identity);
+    uniqueResults.push(result);
 
     if (
       uniqueResults.length >=
@@ -1194,10 +822,7 @@ export async function findVisualForScene(
     }
   }
 
-  if (
-    uniqueResults.length ===
-    0
-  ) {
+  if (uniqueResults.length === 0) {
     throw new Error(
       `[VisualEngine] No suitable Pexels visual found for scene ${
         index + 1
@@ -1209,20 +834,19 @@ export async function findVisualForScene(
     selectBestVisual(
       uniqueResults,
       scene,
-      index
+      index,
+      usedVisualIds
     );
 
-  if (
-    !selected
-  ) {
+  if (!selected?.url) {
     throw new Error(
-      `[VisualEngine] Could not select a visual for scene ${
+      `[VisualEngine] Selected visual has no URL for scene ${
         index + 1
       }.`
     );
   }
 
-  validateVisualMatchScore(
+  validateVisualMatch(
     selected,
     scene,
     index
@@ -1240,7 +864,10 @@ export async function findVisualForScene(
     continuityPrompt,
 
     character:
-      scene.character,
+      getSceneCharacter(
+        scene,
+        story
+      ),
 
     environment:
       scene.environment,
@@ -1252,16 +879,14 @@ export async function findVisualForScene(
       scene.emotion || '',
 
     importantObject:
-      scene.importantObject ||
-      '',
+      getSceneObject(scene),
 
     narration:
-      scene.narration || '',
+      scene.narration,
 
     plannedDuration:
       Number(
-        scene.duration ||
-        5
+        scene.duration || 5
       ),
 
     visualMatch: {
@@ -1270,26 +895,22 @@ export async function findVisualForScene(
 
       semanticScore:
         Number(
-          selected.semanticScore ||
-          0
+          selected.semanticScore || 0
         ),
 
       technicalScore:
         Number(
-          selected.technicalScore ||
-          0
+          selected.technicalScore || 0
         ),
 
       durationScore:
         Number(
-          selected.durationScore ||
-          0
+          selected.durationScore || 0
         ),
 
       confidence:
         Number(
-          selected.semanticScore ||
-          0
+          selected.semanticScore || 0
         ) >= 50
           ? 'medium'
           : 'low',
@@ -1304,7 +925,7 @@ export async function findVisualForScene(
 }
 
 // ============================================================
-// BUILD ALL SCENE VISUALS
+// BUILD VISUALS FOR ALL SCENES
 // ============================================================
 
 export async function buildSceneVisuals(
@@ -1312,9 +933,7 @@ export async function buildSceneVisuals(
   story = {}
 ) {
   if (
-    !Array.isArray(
-      scenes
-    ) ||
+    !Array.isArray(scenes) ||
     scenes.length === 0
   ) {
     throw new Error(
@@ -1322,8 +941,8 @@ export async function buildSceneVisuals(
     );
   }
 
-  const visuals =
-    [];
+  const visuals = [];
+  const usedVisualIds = new Set();
 
   for (
     let index = 0;
@@ -1333,31 +952,46 @@ export async function buildSceneVisuals(
     const scene =
       scenes[index];
 
-    validateSceneVisual(
-      scene,
-      index
-    );
-
     const visual =
       await findVisualForScene(
         scene,
         story,
-        index
+        index,
+        usedVisualIds
       );
 
-    if (
-      !visual?.url
-    ) {
+    if (!visual?.url) {
       throw new Error(
         `[VisualEngine] Scene ${
           index + 1
-        } visual URL is missing.`
+        } has no visual URL.`
       );
     }
 
-    visuals.push(
-      visual
-    );
+    const identity =
+      visual.id ||
+      visual.url;
+
+    if (!identity) {
+      throw new Error(
+        `[VisualEngine] Scene ${
+          index + 1
+        } has no stable visual identity.`
+      );
+    }
+
+    if (
+      usedVisualIds.has(identity)
+    ) {
+      throw new Error(
+        `[VisualEngine] Duplicate visual detected for scene ${
+          index + 1
+        }.`
+      );
+    }
+
+    usedVisualIds.add(identity);
+    visuals.push(visual);
   }
 
   if (
@@ -1365,44 +999,36 @@ export async function buildSceneVisuals(
     scenes.length
   ) {
     throw new Error(
-      `[VisualEngine] Visual coverage failed. Scenes: ${
-        scenes.length
-      }, visuals: ${
+      `[VisualEngine] Visual coverage failed: ${
         visuals.length
-      }.`
+      }/${scenes.length}.`
     );
   }
 
-  /*
-   * Reject a batch when more than half of the scenes
-   * have low search-confidence.
-   */
-
-  const lowConfidenceCount =
+  const lowConfidence =
     visuals.filter(
       visual =>
         visual?.visualMatch
-          ?.confidence ===
-        'low'
+          ?.confidence === 'low'
     ).length;
 
   if (
-    lowConfidenceCount >
+    lowConfidence >
     Math.ceil(
       scenes.length * 0.5
     )
   ) {
     throw new Error(
       `[VisualEngine] Too many low-confidence visuals: ${
-        lowConfidenceCount
-      }/${scenes.length}. Refusing to render a potentially incoherent story.`
+        lowConfidence
+      }/${scenes.length}.`
     );
   }
 
   console.log(
     `[VisualEngine] Visual planning complete: ${
       visuals.length
-    }/${scenes.length} scenes covered.`
+    }/${scenes.length}.`
   );
 
   return visuals;
@@ -1421,19 +1047,13 @@ export async function downloadVisual(
       ? visualOrUrl
       : visualOrUrl?.url;
 
-  if (
-    !cleanText(
-      visualUrl
-    )
-  ) {
+  if (!cleanText(visualUrl)) {
     throw new Error(
       '[VisualEngine] Visual URL is missing.'
     );
   }
 
-  if (
-    !outputPath
-  ) {
+  if (!outputPath) {
     throw new Error(
       '[VisualEngine] outputPath is required.'
     );
@@ -1444,17 +1064,14 @@ export async function downloadVisual(
       outputPath
     );
 
-  const directory =
+  ensureDirectory(
     path.dirname(
       absoluteOutputPath
-    );
-
-  ensureDirectory(
-    directory
+    )
   );
 
   console.log(
-    `[VisualEngine] Downloading visual: ${
+    `[VisualEngine] Downloading visual to ${
       absoluteOutputPath
     }`
   );
@@ -1466,15 +1083,9 @@ export async function downloadVisual(
       await axios.get(
         visualUrl,
         {
-          responseType:
-            'stream',
-
-          timeout:
-            60000,
-
-          maxRedirects:
-            5,
-
+          responseType: 'stream',
+          timeout: 60000,
+          maxRedirects: 5,
           validateStatus:
             status =>
               status >= 200 &&
@@ -1485,49 +1096,36 @@ export async function downloadVisual(
     const status =
       error?.response?.status;
 
-    const message =
-      error?.message ||
-      'Unknown download error';
-
     throw new Error(
       `[VisualEngine] Visual download failed${
-        status
-          ? ` (${status})`
-          : ''
-      }: ${message}`
+        status ? ` (${status})` : ''
+      }: ${
+        error?.message ||
+        'Unknown download error'
+      }`
     );
   }
 
   await new Promise(
-    (
-      resolve,
-      reject
-    ) => {
+    (resolve, reject) => {
       const writer =
         fs.createWriteStream(
           absoluteOutputPath
         );
 
-      let settled =
-        false;
+      let finished = false;
 
-      const fail =
-        error => {
-          if (
-            settled
-          ) {
-            return;
-          }
+      const fail = error => {
+        if (finished) {
+          return;
+        }
 
-          settled =
-            true;
+        finished = true;
 
-          writer.destroy();
+        writer.destroy();
 
-          reject(
-            error
-          );
-        };
+        reject(error);
+      };
 
       response.data.on(
         'error',
@@ -1542,15 +1140,11 @@ export async function downloadVisual(
       writer.on(
         'finish',
         () => {
-          if (
-            settled
-          ) {
+          if (finished) {
             return;
           }
 
-          settled =
-            true;
-
+          finished = true;
           resolve();
         }
       );
@@ -1578,13 +1172,9 @@ export async function downloadVisual(
       absoluteOutputPath
     );
 
-  if (
-    !stats.isFile()
-  ) {
+  if (!stats.isFile()) {
     throw new Error(
-      `[VisualEngine] Downloaded visual is not a file: ${
-        absoluteOutputPath
-      }`
+      `[VisualEngine] Downloaded visual is not a file.`
     );
   }
 
@@ -1594,8 +1184,8 @@ export async function downloadVisual(
   ) {
     throw new Error(
       `[VisualEngine] Downloaded visual is too small: ${
-        absoluteOutputPath
-      } (${stats.size} bytes)`
+        stats.size
+      } bytes.`
     );
   }
 
@@ -1609,7 +1199,7 @@ export async function downloadVisual(
 }
 
 // ============================================================
-// EXPORTS
+// DEFAULT EXPORT
 // ============================================================
 
 export default {
