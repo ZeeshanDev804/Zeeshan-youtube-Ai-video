@@ -15,8 +15,8 @@ const REQUEST_TIMEOUT_MS = 60000;
 const MAX_TEXT_LENGTH = 5000;
 const MAX_PROVIDER_RETRIES = 2;
 
-// Professional narration defaults
 const DEFAULT_LANGUAGE = 'en-US';
+const DEFAULT_GTTS_LANGUAGE = 'en';
 const DEFAULT_ELEVEN_MODEL = 'eleven_multilingual_v2';
 
 const DEFAULT_VOICE_PROFILE = {
@@ -27,7 +27,7 @@ const DEFAULT_VOICE_PROFILE = {
 };
 
 // ============================================================
-// TEXT NORMALIZATION
+// BASIC HELPERS
 // ============================================================
 
 function cleanText(value) {
@@ -54,18 +54,299 @@ function validateText(value) {
   return text;
 }
 
+function readBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  return String(value)
+    .trim()
+    .toLowerCase() === 'true';
+}
+
+function sleep(ms) {
+  return new Promise(resolve => {
+    setTimeout(resolve, ms);
+  });
+}
+
+// ============================================================
+// CONFIG ACCESS
+// IMPORTANT:
+// This engine uses config.voiceConfig.
+// ============================================================
+
+function getVoiceConfig() {
+  return config?.voiceConfig || {};
+}
+
+function getElevenLabsConfig() {
+  return getVoiceConfig().elevenLabs || {};
+}
+
+function getGoogleConfig() {
+  return getVoiceConfig().google || {};
+}
+
+function getPollyConfig() {
+  return getVoiceConfig().polly || {};
+}
+
+function getGTTSConfig() {
+  return getVoiceConfig().gtts || {};
+}
+
+// ============================================================
+// LANGUAGE
+// ============================================================
+
+function getLanguageCode() {
+  const googleConfig =
+    getGoogleConfig();
+
+  return (
+    googleConfig.languageCode ||
+    process.env.GOOGLE_TTS_LANGUAGE_CODE ||
+    process.env.TTS_LANGUAGE ||
+    DEFAULT_LANGUAGE
+  );
+}
+
+function getGTTSLanguage() {
+  const gttsConfig =
+    getGTTSConfig();
+
+  return (
+    gttsConfig.language ||
+    process.env.GTTS_LANGUAGE ||
+    DEFAULT_GTTS_LANGUAGE
+  );
+}
+
+// ============================================================
+// ELEVENLABS CONFIG
+// ============================================================
+
+function getElevenLabsApiKey() {
+  const eleven =
+    getElevenLabsConfig();
+
+  return (
+    eleven.apiKey ||
+    process.env.ELEVENLABS_API_KEY ||
+    ''
+  );
+}
+
+function getElevenLabsVoiceId() {
+  const eleven =
+    getElevenLabsConfig();
+
+  return (
+    eleven.voiceId ||
+    process.env.ELEVENLABS_VOICE_ID ||
+    ''
+  );
+}
+
+function getElevenLabsSettings() {
+  const eleven =
+    getElevenLabsConfig();
+
+  return {
+    modelId:
+      eleven.model ||
+      eleven.modelId ||
+      process.env.ELEVENLABS_MODEL_ID ||
+      DEFAULT_ELEVEN_MODEL,
+
+    stability:
+      Number(
+        eleven.stability ??
+        process.env.ELEVENLABS_STABILITY ??
+        DEFAULT_VOICE_PROFILE.stability
+      ),
+
+    similarityBoost:
+      Number(
+        eleven.similarityBoost ??
+        eleven.similarity_boost ??
+        process.env.ELEVENLABS_SIMILARITY_BOOST ??
+        DEFAULT_VOICE_PROFILE.similarityBoost
+      ),
+
+    style:
+      Number(
+        eleven.style ??
+        process.env.ELEVENLABS_STYLE ??
+        DEFAULT_VOICE_PROFILE.style
+      ),
+
+    useSpeakerBoost:
+      readBoolean(
+        eleven.speakerBoost ??
+        eleven.useSpeakerBoost ??
+        process.env.ELEVENLABS_SPEAKER_BOOST,
+        DEFAULT_VOICE_PROFILE.useSpeakerBoost
+      )
+  };
+}
+
+// ============================================================
+// GOOGLE CLOUD CONFIG
+// ============================================================
+
+function getGoogleApiKey() {
+  const google =
+    getGoogleConfig();
+
+  return (
+    google.apiKey ||
+    process.env.GOOGLE_CLOUD_TTS_API_KEY ||
+    ''
+  );
+}
+
+function getGoogleVoice() {
+  const google =
+    getGoogleConfig();
+
+  return (
+    google.voiceName ||
+    process.env.GOOGLE_CLOUD_TTS_VOICE ||
+    'en-US-Neural2-J'
+  );
+}
+
+function getGoogleSpeakingRate() {
+  const google =
+    getGoogleConfig();
+
+  const value =
+    Number(
+      google.speakingRate ??
+      process.env.GOOGLE_TTS_SPEAKING_RATE ??
+      1.0
+    );
+
+  return Number.isFinite(value)
+    ? value
+    : 1.0;
+}
+
+function getGooglePitch() {
+  const google =
+    getGoogleConfig();
+
+  const value =
+    Number(
+      google.pitch ??
+      process.env.GOOGLE_TTS_PITCH ??
+      0
+    );
+
+  return Number.isFinite(value)
+    ? value
+    : 0;
+}
+
+// ============================================================
+// AMAZON POLLY CONFIG
+// ============================================================
+
+function getAwsCredentials() {
+  const polly =
+    getPollyConfig();
+
+  return {
+    accessKey:
+      polly.accessKeyId ||
+      process.env.AWS_ACCESS_KEY_ID ||
+      '',
+
+    secretKey:
+      polly.secretAccessKey ||
+      process.env.AWS_SECRET_ACCESS_KEY ||
+      '',
+
+    sessionToken:
+      polly.sessionToken ||
+      process.env.AWS_SESSION_TOKEN ||
+      ''
+  };
+}
+
+function getPollyRegion() {
+  const polly =
+    getPollyConfig();
+
+  return (
+    polly.region ||
+    process.env.AWS_REGION ||
+    'us-east-1'
+  );
+}
+
+function getPollyVoice() {
+  const polly =
+    getPollyConfig();
+
+  return (
+    polly.voiceId ||
+    process.env.AWS_POLLY_VOICE ||
+    'Matthew'
+  );
+}
+
+function getPollyEngine() {
+  const polly =
+    getPollyConfig();
+
+  const engine =
+    String(
+      polly.engine ||
+      process.env.AWS_POLLY_ENGINE ||
+      'neural'
+    )
+      .trim()
+      .toLowerCase();
+
+  return engine === 'standard'
+    ? 'standard'
+    : 'neural';
+}
+
+function getPollyLanguageCode() {
+  const polly =
+    getPollyConfig();
+
+  return (
+    polly.languageCode ||
+    process.env.AWS_POLLY_LANGUAGE_CODE ||
+    'en-US'
+  );
+}
+
 // ============================================================
 // FILE MANAGEMENT
 // ============================================================
 
 function ensureOutputDirectory(outputPath) {
-  const directory = path.dirname(
-    path.resolve(outputPath)
-  );
+  const directory =
+    path.dirname(
+      path.resolve(outputPath)
+    );
 
-  fs.mkdirSync(directory, {
-    recursive: true
-  });
+  fs.mkdirSync(
+    directory,
+    {
+      recursive: true
+    }
+  );
 }
 
 function removeExistingFile(outputPath) {
@@ -89,7 +370,8 @@ function validateAudioFile(outputPath) {
     );
   }
 
-  const stats = fs.statSync(outputPath);
+  const stats =
+    fs.statSync(outputPath);
 
   if (!stats.isFile()) {
     throw new Error(
@@ -106,7 +388,10 @@ function validateAudioFile(outputPath) {
   return outputPath;
 }
 
-function writeAudioFile(outputPath, audioBuffer) {
+function writeAudioFile(
+  outputPath,
+  audioBuffer
+) {
   if (
     !Buffer.isBuffer(audioBuffer) ||
     audioBuffer.length < MIN_AUDIO_BYTES
@@ -116,181 +401,34 @@ function writeAudioFile(outputPath, audioBuffer) {
     );
   }
 
-  ensureOutputDirectory(outputPath);
+  ensureOutputDirectory(
+    outputPath
+  );
 
   fs.writeFileSync(
     outputPath,
     audioBuffer
   );
 
-  return validateAudioFile(outputPath);
+  return validateAudioFile(
+    outputPath
+  );
 }
 
 // ============================================================
-// ENVIRONMENT / CONFIG HELPERS
-// ============================================================
-
-function getLanguageCode() {
-  return (
-    config?.ttsConfig?.language ||
-    process.env.TTS_LANGUAGE ||
-    DEFAULT_LANGUAGE
-  );
-}
-
-function getElevenLabsApiKey() {
-  return (
-    config?.elevenLabsApiKey ||
-    process.env.ELEVENLABS_API_KEY ||
-    ''
-  );
-}
-
-function getElevenLabsVoiceId() {
-  return (
-    config?.elevenLabsVoiceId ||
-    process.env.ELEVENLABS_VOICE_ID ||
-    ''
-  );
-}
-
-function getElevenLabsSettings() {
-  const settings =
-    config?.ttsConfig?.elevenLabs ||
-    {};
-
-  return {
-    modelId:
-      settings.modelId ||
-      process.env.ELEVENLABS_MODEL_ID ||
-      DEFAULT_ELEVEN_MODEL,
-
-    stability:
-      Number(
-        settings.stability ??
-        process.env.ELEVENLABS_STABILITY ??
-        DEFAULT_VOICE_PROFILE.stability
-      ),
-
-    similarityBoost:
-      Number(
-        settings.similarityBoost ??
-        process.env.ELEVENLABS_SIMILARITY_BOOST ??
-        DEFAULT_VOICE_PROFILE.similarityBoost
-      ),
-
-    style:
-      Number(
-        settings.style ??
-        process.env.ELEVENLABS_STYLE ??
-        DEFAULT_VOICE_PROFILE.style
-      ),
-
-    useSpeakerBoost:
-      settings.useSpeakerBoost ??
-      DEFAULT_VOICE_PROFILE.useSpeakerBoost
-  };
-}
-
-function getGoogleApiKey() {
-  return (
-    config?.googleCloudTtsApiKey ||
-    process.env.GOOGLE_CLOUD_TTS_API_KEY ||
-    ''
-  );
-}
-
-function getGoogleVoice() {
-  return (
-    config?.googleCloudTtsVoice ||
-    process.env.GOOGLE_CLOUD_TTS_VOICE ||
-    'en-US-Neural2-D'
-  );
-}
-
-function getAwsCredentials() {
-  return {
-    accessKey:
-      process.env.AWS_ACCESS_KEY_ID ||
-      config?.awsAccessKeyId ||
-      '',
-
-    secretKey:
-      process.env.AWS_SECRET_ACCESS_KEY ||
-      config?.awsSecretAccessKey ||
-      '',
-
-    sessionToken:
-      process.env.AWS_SESSION_TOKEN ||
-      config?.awsSessionToken ||
-      ''
-  };
-}
-
-function getAwsRegion() {
-  return (
-    process.env.AWS_REGION ||
-    config?.awsRegion ||
-    'us-east-1'
-  );
-}
-
-function getPollyVoice() {
-  return (
-    process.env.AWS_POLLY_VOICE ||
-    config?.awsPollyVoice ||
-    'Matthew'
-  );
-}
-
-function getPollyEngine() {
-  const engine = String(
-    process.env.AWS_POLLY_ENGINE ||
-    config?.awsPollyEngine ||
-    'neural'
-  )
-    .trim()
-    .toLowerCase();
-
-  return engine === 'standard'
-    ? 'standard'
-    : 'neural';
-}
-
-// ============================================================
-// BOOLEAN HELPER
-// ============================================================
-
-function readBoolean(value, fallback) {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-
-  if (
-    value === undefined ||
-    value === null
-  ) {
-    return fallback;
-  }
-
-  return String(value)
-    .trim()
-    .toLowerCase() === 'true';
-}
-
-// ============================================================
-// PROFESSIONAL VOICE PROFILE
+// VOICE PROFILE
 // ============================================================
 
 function getVoiceProfile(options = {}) {
-  const mood = String(
-    options.mood ||
-    options.tone ||
-    options.category ||
-    ''
-  )
-    .trim()
-    .toLowerCase();
+  const mood =
+    String(
+      options.mood ||
+      options.tone ||
+      options.category ||
+      ''
+    )
+      .trim()
+      .toLowerCase();
 
   const profile = {
     ...DEFAULT_VOICE_PROFILE
@@ -339,43 +477,34 @@ function getVoiceProfile(options = {}) {
   }
 
   if (options.voiceSettings) {
+    const settings =
+      options.voiceSettings;
+
     if (
       Number.isFinite(
-        Number(
-          options.voiceSettings.stability
-        )
+        Number(settings.stability)
       )
     ) {
       profile.stability =
-        Number(
-          options.voiceSettings.stability
-        );
+        Number(settings.stability);
     }
 
     if (
       Number.isFinite(
-        Number(
-          options.voiceSettings.similarityBoost
-        )
+        Number(settings.similarityBoost)
       )
     ) {
       profile.similarityBoost =
-        Number(
-          options.voiceSettings.similarityBoost
-        );
+        Number(settings.similarityBoost);
     }
 
     if (
       Number.isFinite(
-        Number(
-          options.voiceSettings.style
-        )
+        Number(settings.style)
       )
     ) {
       profile.style =
-        Number(
-          options.voiceSettings.style
-        );
+        Number(settings.style);
     }
   }
 
@@ -383,26 +512,35 @@ function getVoiceProfile(options = {}) {
 }
 
 // ============================================================
-// NARRATION PROCESSING
+// NARRATION CLEANUP
 // ============================================================
 
-function prepareNarration(text, options = {}) {
-  let narration = validateText(text);
+function prepareNarration(
+  text,
+  options = {}
+) {
+  let narration =
+    validateText(text);
 
-  // Remove unnecessary markdown artifacts.
-  narration = narration
-    .replace(/[*_`#]+/g, '')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
+  narration =
+    narration
+      .replace(/[*_`#]+/g, '')
+      .replace(
+        /\[([^\]]+)\]\([^)]+\)/g,
+        '$1'
+      )
+      .replace(/\s+/g, ' ')
+      .trim();
 
-  // Professional pause handling.
-  if (options.addNaturalPauses !== false) {
-    narration = narration
-      .replace(/,\s*/g, ', ')
-      .replace(/;\s*/g, '; ')
-      .replace(/:\s*/g, ': ')
-      .replace(/\.\s+/g, '. ');
+  if (
+    options.addNaturalPauses !== false
+  ) {
+    narration =
+      narration
+        .replace(/,\s*/g, ', ')
+        .replace(/;\s*/g, '; ')
+        .replace(/:\s*/g, ': ')
+        .replace(/\.\s+/g, '. ');
   }
 
   return narration;
@@ -449,8 +587,7 @@ function requestJson({
               'end',
               () => {
                 const status =
-                  response.statusCode ||
-                  0;
+                  response.statusCode || 0;
 
                 if (
                   status < 200 ||
@@ -490,8 +627,7 @@ function requestJson({
           request.destroy(
             new Error(
               `Request timeout after ${
-                REQUEST_TIMEOUT_MS /
-                1000
+                REQUEST_TIMEOUT_MS / 1000
               } seconds.`
             )
           );
@@ -549,13 +685,10 @@ function requestBinary({
               'end',
               () => {
                 const buffer =
-                  Buffer.concat(
-                    chunks
-                  );
+                  Buffer.concat(chunks);
 
                 const status =
-                  response.statusCode ||
-                  0;
+                  response.statusCode || 0;
 
                 if (
                   status < 200 ||
@@ -564,13 +697,8 @@ function requestBinary({
                   reject(
                     new Error(
                       `HTTP ${status}: ${buffer
-                        .toString(
-                          'utf8'
-                        )
-                        .slice(
-                          0,
-                          1500
-                        )}`
+                        .toString('utf8')
+                        .slice(0, 1500)}`
                     )
                   );
                   return;
@@ -588,8 +716,7 @@ function requestBinary({
           request.destroy(
             new Error(
               `Request timeout after ${
-                REQUEST_TIMEOUT_MS /
-                1000
+                REQUEST_TIMEOUT_MS / 1000
               } seconds.`
             )
           );
@@ -611,18 +738,8 @@ function requestBinary({
 }
 
 // ============================================================
-// RETRY SYSTEM
+// RETRY
 // ============================================================
-
-function sleep(ms) {
-  return new Promise(
-    resolve =>
-      setTimeout(
-        resolve,
-        ms
-      )
-  );
-}
 
 async function withRetry(
   operation,
@@ -632,8 +749,7 @@ async function withRetry(
 
   for (
     let attempt = 1;
-    attempt <=
-      MAX_PROVIDER_RETRIES;
+    attempt <= MAX_PROVIDER_RETRIES;
     attempt += 1
   ) {
     try {
@@ -662,9 +778,7 @@ async function withRetry(
         `[VoiceEngine] ${provider} failed on attempt ${attempt}. Retrying...`
       );
 
-      await sleep(
-        delay
-      );
+      await sleep(delay);
     }
   }
 
@@ -672,7 +786,7 @@ async function withRetry(
 }
 
 // ============================================================
-// ELEVENLABS PROFESSIONAL GENERATION
+// ELEVENLABS
 // ============================================================
 
 async function generateWithElevenLabs(
@@ -702,9 +816,7 @@ async function generateWithElevenLabs(
     getElevenLabsSettings();
 
   const profile =
-    getVoiceProfile(
-      options
-    );
+    getVoiceProfile(options);
 
   const body =
     JSON.stringify({
@@ -740,8 +852,7 @@ async function generateWithElevenLabs(
               voiceId
             )}`,
 
-          method:
-            'POST',
+          method: 'POST',
 
           headers: {
             Accept:
@@ -754,9 +865,7 @@ async function generateWithElevenLabs(
               apiKey,
 
             'Content-Length':
-              Buffer.byteLength(
-                body
-              )
+              Buffer.byteLength(body)
           },
 
           body
@@ -772,7 +881,7 @@ async function generateWithElevenLabs(
 }
 
 // ============================================================
-// GOOGLE CLOUD TTS BACKUP
+// GOOGLE CLOUD TTS
 // ============================================================
 
 async function generateWithGoogleCloud(
@@ -802,22 +911,16 @@ async function generateWithGoogleCloud(
 
       voice: {
         languageCode,
-        name:
-          voiceName
+        name: voiceName
       },
 
       audioConfig: {
-        audioEncoding:
-          'MP3',
-
+        audioEncoding: 'MP3',
         speakingRate:
-          1.0,
-
+          getGoogleSpeakingRate(),
         pitch:
-          0,
-
-        volumeGainDb:
-          0
+          getGooglePitch(),
+        volumeGainDb: 0
       }
     });
 
@@ -833,17 +936,14 @@ async function generateWithGoogleCloud(
               apiKey
             )}`,
 
-          method:
-            'POST',
+          method: 'POST',
 
           headers: {
             'Content-Type':
               'application/json',
 
             'Content-Length':
-              Buffer.byteLength(
-                body
-              )
+              Buffer.byteLength(body)
           },
 
           body
@@ -873,14 +973,12 @@ async function generateWithGoogleCloud(
 }
 
 // ============================================================
-// AWS CRYPTOGRAPHY
+// AWS SIGNATURE V4 HELPERS
 // ============================================================
 
 function sha256Hex(data) {
   return crypto
-    .createHash(
-      'sha256'
-    )
+    .createHash('sha256')
     .update(data)
     .digest('hex');
 }
@@ -925,7 +1023,7 @@ function getDateStamp(
 }
 
 // ============================================================
-// AWS SIGNATURE V4
+// AWS AUTHORIZATION
 // ============================================================
 
 function createAwsAuthorization({
@@ -950,9 +1048,7 @@ function createAwsAuthorization({
     '';
 
   const payloadHash =
-    sha256Hex(
-      body
-    );
+    sha256Hex(body);
 
   const headerValues = {
     host,
@@ -970,8 +1066,7 @@ function createAwsAuthorization({
   if (sessionToken) {
     headerValues[
       'x-amz-security-token'
-    ] =
-      sessionToken;
+    ] = sessionToken;
   }
 
   const signedHeaderNames =
@@ -1004,9 +1099,6 @@ function createAwsAuthorization({
       ';'
     );
 
-  // IMPORTANT:
-  // canonicalHeaders already ends with \n.
-  // Do not add another newline inside it.
   const canonicalRequest =
     [
       method,
@@ -1079,7 +1171,7 @@ function createAwsAuthorization({
 }
 
 // ============================================================
-// AMAZON POLLY BACKUP
+// AMAZON POLLY
 // ============================================================
 
 async function generateWithAmazonPolly(
@@ -1099,10 +1191,13 @@ async function generateWithAmazonPolly(
   }
 
   const region =
-    getAwsRegion();
+    getPollyRegion();
 
   const voiceId =
     getPollyVoice();
+
+  const languageCode =
+    getPollyLanguageCode();
 
   const configuredEngine =
     getPollyEngine();
@@ -1128,7 +1223,10 @@ async function generateWithAmazonPolly(
           voiceId,
 
         Engine:
-          engine
+          engine,
+
+        LanguageCode:
+          languageCode
       });
 
     const amzDate =
@@ -1137,13 +1235,9 @@ async function generateWithAmazonPolly(
     const signing =
       createAwsAuthorization({
         ...credentials,
-
         region,
-
         host,
-
         body,
-
         amzDate
       });
 
@@ -1155,9 +1249,7 @@ async function generateWithAmazonPolly(
         'application/json',
 
       'Content-Length':
-        Buffer.byteLength(
-          body
-        ),
+        Buffer.byteLength(body),
 
       'X-Amz-Date':
         amzDate,
@@ -1201,7 +1293,6 @@ async function generateWithAmazonPolly(
           requestPolly(
             configuredEngine
           ),
-
         'Amazon Polly'
       );
 
@@ -1227,7 +1318,6 @@ async function generateWithAmazonPolly(
           requestPolly(
             'standard'
           ),
-
         'Amazon Polly Standard'
       );
 
@@ -1244,9 +1334,22 @@ async function generateWithAmazonPolly(
 
 async function generateWithGTTS(
   text,
-  outputPath,
-  language = 'en'
+  outputPath
 ) {
+  const gttsConfig =
+    getGTTSConfig();
+
+  if (
+    gttsConfig.enabled === false
+  ) {
+    throw new Error(
+      'gTTS is disabled in config.'
+    );
+  }
+
+  const language =
+    getGTTSLanguage();
+
   ensureOutputDirectory(
     outputPath
   );
@@ -1267,9 +1370,7 @@ async function generateWithGTTS(
           outputPath,
           error => {
             if (error) {
-              reject(
-                error
-              );
+              reject(error);
               return;
             }
 
@@ -1289,25 +1390,62 @@ async function generateWithGTTS(
           }
         );
       } catch (error) {
-        reject(
-          error
-        );
+        reject(error);
       }
     }
   );
 }
 
 // ============================================================
-// PROVIDER CONFIGURATION
+// PROVIDER NORMALIZATION
+// ============================================================
+
+function normalizeProvider(
+  provider
+) {
+  const value =
+    String(
+      provider || ''
+    )
+      .trim()
+      .toLowerCase();
+
+  switch (value) {
+    case 'elevenlabs':
+    case 'eleven-labs':
+      return 'elevenlabs';
+
+    case 'google':
+    case 'google-cloud':
+    case 'googlecloud':
+    case 'google-tts':
+      return 'google';
+
+    case 'amazon':
+    case 'amazon-polly':
+    case 'polly':
+      return 'polly';
+
+    case 'gtts':
+    case 'google-translate-tts':
+      return 'gtts';
+
+    default:
+      return value;
+  }
+}
+
+// ============================================================
+// PROVIDER CONFIGURATION CHECK
 // ============================================================
 
 function providerConfigured(
   provider
 ) {
   const name =
-    String(provider)
-      .trim()
-      .toLowerCase();
+    normalizeProvider(
+      provider
+    );
 
   switch (name) {
     case 'elevenlabs':
@@ -1317,15 +1455,11 @@ function providerConfigured(
       );
 
     case 'google':
-    case 'google-cloud':
-    case 'googlecloud':
       return Boolean(
         getGoogleApiKey()
       );
 
-    case 'amazon':
-    case 'polly':
-    case 'amazon-polly': {
+    case 'polly': {
       const credentials =
         getAwsCredentials();
 
@@ -1336,7 +1470,10 @@ function providerConfigured(
     }
 
     case 'gtts':
-      return true;
+      return (
+        getGTTSConfig()
+          .enabled !== false
+      );
 
     default:
       return false;
@@ -1350,82 +1487,79 @@ function providerConfigured(
 function buildProviderOrder(
   requestedProvider
 ) {
+  const voice =
+    getVoiceConfig();
+
   const providers =
     [];
-
-  const primary =
-    String(
-      requestedProvider ||
-      config?.ttsConfig
-        ?.primaryProvider ||
-      process.env.TTS_PRIMARY_PROVIDER ||
-      'elevenlabs'
-    )
-      .trim()
-      .toLowerCase();
 
   function add(
     provider
   ) {
-    if (
-      !providers.includes(
-        provider
-      )
-    ) {
-      providers.push(
+    const normalized =
+      normalizeProvider(
         provider
       );
+
+    if (
+      !normalized ||
+      providers.includes(
+        normalized
+      )
+    ) {
+      return;
     }
+
+    providers.push(
+      normalized
+    );
   }
 
-  // Primary provider first.
-  add(
-    primary
-  );
+  // ----------------------------------------------------------
+  // 1. Requested provider
+  // ----------------------------------------------------------
 
-  // Professional primary.
-  add(
-    'elevenlabs'
-  );
-
-  const googleEnabled =
-    readBoolean(
-      config?.ttsConfig
-        ?.enableGoogleBackup ??
-        process.env
-          .TTS_ENABLE_GOOGLE_BACKUP,
-      true
-    );
-
-  if (
-    googleEnabled
-  ) {
+  if (requestedProvider) {
     add(
-      'google'
+      requestedProvider
     );
-  }
-
-  const amazonEnabled =
-    readBoolean(
-      config?.ttsConfig
-        ?.enableAmazonBackup ??
-        process.env
-          .TTS_ENABLE_AMAZON_BACKUP,
-      true
-    );
-
-  if (
-    amazonEnabled
-  ) {
+  } else {
     add(
-      'amazon'
+      voice.primaryProvider ||
+      process.env.TTS_PRIMARY_PROVIDER ||
+      'elevenlabs'
     );
   }
 
-  // Emergency-only final fallback.
-  add(
-    'gtts'
-  );
+  // ----------------------------------------------------------
+  // 2. Configured fallback providers
+  // ----------------------------------------------------------
+
+  const fallbackProviders =
+    Array.isArray(
+      voice.fallbackProviders
+    )
+      ? voice.fallbackProviders
+      : [];
+
+  for (
+    const provider of
+      fallbackProviders
+  ) {
+    add(provider);
+  }
+
+  // ----------------------------------------------------------
+  // 3. Safety defaults
+  //
+  // These make sure the engine still has a professional
+  // fallback chain even if fallbackProviders is incomplete.
+  // ----------------------------------------------------------
+
+  add('elevenlabs');
+  add('google');
+  add('polly');
+  add('gtts');
 
   return providers;
 }
@@ -1440,11 +1574,12 @@ async function generateByProvider(
   outputPath,
   options = {}
 ) {
-  switch (
-    String(provider)
-      .trim()
-      .toLowerCase()
-  ) {
+  const name =
+    normalizeProvider(
+      provider
+    );
+
+  switch (name) {
     case 'elevenlabs':
       return generateWithElevenLabs(
         text,
@@ -1453,16 +1588,12 @@ async function generateByProvider(
       );
 
     case 'google':
-    case 'google-cloud':
-    case 'googlecloud':
       return generateWithGoogleCloud(
         text,
         outputPath
       );
 
-    case 'amazon':
     case 'polly':
-    case 'amazon-polly':
       return generateWithAmazonPolly(
         text,
         outputPath
@@ -1471,9 +1602,7 @@ async function generateByProvider(
     case 'gtts':
       return generateWithGTTS(
         text,
-        outputPath,
-        options.language ||
-          'en'
+        outputPath
       );
 
     default:
@@ -1484,7 +1613,7 @@ async function generateByProvider(
 }
 
 // ============================================================
-// MAIN PROFESSIONAL VOICEOVER
+// MAIN VOICE GENERATION
 // ============================================================
 
 export async function generateVoiceover(
@@ -1514,11 +1643,11 @@ export async function generateVoiceover(
     );
 
   console.log(
-    `[VoiceEngine] Starting professional voice generation.`
+    '[VoiceEngine] Starting professional voice generation.'
   );
 
   console.log(
-    `[VoiceEngine] Providers: ${providers.join(
+    `[VoiceEngine] Provider order: ${providers.join(
       ' -> '
     )}`
   );
@@ -1529,7 +1658,7 @@ export async function generateVoiceover(
     options.category
   ) {
     console.log(
-      `[VoiceEngine] Voice mood: ${
+      `[VoiceEngine] Voice profile: ${
         options.mood ||
         options.tone ||
         options.category
@@ -1580,11 +1709,11 @@ export async function generateVoiceover(
       const finalPath =
         validateAudioFile(
           result ||
-            outputPath
+          outputPath
         );
 
       console.log(
-        `[VoiceEngine] SUCCESS: professional narration generated with ${provider}.`
+        `[VoiceEngine] SUCCESS: ${provider}`
       );
 
       return finalPath;
@@ -1626,7 +1755,7 @@ export async function generateVoiceover(
 }
 
 // ============================================================
-// SCENE-BY-SCENE PROFESSIONAL VOICEOVER
+// SCENE-BY-SCENE VOICE GENERATION
 // ============================================================
 
 export async function generateSceneVoiceovers(
@@ -1635,9 +1764,7 @@ export async function generateSceneVoiceovers(
   options = {}
 ) {
   if (
-    !Array.isArray(
-      scenes
-    ) ||
+    !Array.isArray(scenes) ||
     scenes.length === 0
   ) {
     throw new Error(
@@ -1659,7 +1786,7 @@ export async function generateSceneVoiceovers(
   );
 
   console.log(
-    `[VoiceEngine] Generating professional narration for ${scenes.length} scenes.`
+    `[VoiceEngine] Generating narration for ${scenes.length} scenes.`
   );
 
   const results =
@@ -1682,6 +1809,12 @@ export async function generateSceneVoiceovers(
       scene?.text ||
       '';
 
+    if (!cleanText(narration)) {
+      throw new Error(
+        `[VoiceEngine] Scene ${sceneNumber} has no narration.`
+      );
+    }
+
     const outputPath =
       path.join(
         outputDirectory,
@@ -1693,7 +1826,6 @@ export async function generateSceneVoiceovers(
         )}.mp3`
       );
 
-    // Allow scene-level mood/tone to reach ElevenLabs.
     const sceneOptions =
       {
         ...options,
@@ -1718,7 +1850,7 @@ export async function generateSceneVoiceovers(
       };
 
     console.log(
-      `[VoiceEngine] Scene ${sceneNumber}/${scenes.length}: generating narration...`
+      `[VoiceEngine] Scene ${sceneNumber}/${scenes.length}: generating...`
     );
 
     const audioPath =
@@ -1726,6 +1858,11 @@ export async function generateSceneVoiceovers(
         narration,
         outputPath,
         sceneOptions
+      );
+
+    const validatedPath =
+      validateAudioFile(
+        audioPath
       );
 
     results.push({
@@ -1740,13 +1877,13 @@ export async function generateSceneVoiceovers(
         ),
 
       path:
-        audioPath,
+        validatedPath,
 
       outputPath:
-        audioPath,
+        validatedPath,
 
       audioPath:
-        audioPath
+        validatedPath
     });
 
     console.log(
@@ -1755,7 +1892,7 @@ export async function generateSceneVoiceovers(
   }
 
   console.log(
-    `[VoiceEngine] All scene voiceovers completed successfully.`
+    '[VoiceEngine] All scene voiceovers completed successfully.'
   );
 
   return results;
