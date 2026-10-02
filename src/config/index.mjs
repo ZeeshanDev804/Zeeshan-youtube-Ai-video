@@ -9,7 +9,8 @@ dotenv.config();
  * IMPORTANT:
  * - Secrets are loaded from environment variables.
  * - Never hard-code API keys or OAuth secrets here.
- * - Existing config keys are preserved for compatibility.
+ * - YouTube upload/publish automation is intentionally disabled.
+ * - System goal: generate 5 professional Shorts for manual download/upload.
  */
 
 const toNumber = (value, fallback) => {
@@ -38,45 +39,125 @@ const toList = (value, fallback = []) => {
 
 export const config = {
   /**
+   * ============================================================
    * API KEYS
+   * ============================================================
    */
+
   pexelsApiKey: process.env.PEXELS_API_KEY || '',
+
   geminiApiKey:
     process.env.GEMINI_API_KEY ||
     process.env.GOOGLE_API_KEY ||
     '',
 
   /**
+   * ============================================================
    * APPLICATION
+   * ============================================================
    */
+
   app: {
-    name: process.env.APP_NAME || 'ZEESHAN AI VIDEO',
-    environment: process.env.NODE_ENV || 'development',
-    logLevel: process.env.LOG_LEVEL || 'info'
+    name:
+      process.env.APP_NAME ||
+      'ZEESHAN AI VIDEO',
+
+    environment:
+      process.env.NODE_ENV ||
+      'development',
+
+    logLevel:
+      process.env.LOG_LEVEL ||
+      'info'
   },
 
   /**
-   * TARGET AUDIENCE
+   * ============================================================
+   * PRODUCTION MODE
+   * ============================================================
+   *
+   * The system creates videos only.
+   * YouTube upload/publish is NOT part of production.
    */
+
+  productionMode: {
+    videosPerRun: toNumber(
+      process.env.VIDEOS_PER_RUN,
+      5
+    ),
+
+    maxVideosPerRun: 5,
+
+    manualYouTubeUpload: true,
+
+    automaticYouTubeUpload: false,
+
+    automaticYouTubePublish: false
+  },
+
+  /**
+   * ============================================================
+   * CONTENT LANES
+   * ============================================================
+   *
+   * Every video in a 5-video batch uses a different lane.
+   */
+
+  contentLanes: [
+    'motivation',
+    'facts',
+    'mystery',
+    'funny',
+    'emotional'
+  ],
+
+  /**
+   * ============================================================
+   * TARGET AUDIENCE
+   * ============================================================
+   */
+
   audience: {
-    primary: process.env.TARGET_AUDIENCE || 'US,UK,Europe',
+    primary:
+      process.env.TARGET_AUDIENCE ||
+      'US,UK,Europe',
 
     languages: toList(
       process.env.TARGET_LANGUAGES,
-      ['en-US', 'en-GB', 'en']
+      [
+        'en-US',
+        'en-GB',
+        'en'
+      ]
     ),
 
     regions: toList(
       process.env.TARGET_REGIONS,
-      ['US', 'UK', 'Europe']
-    )
+      [
+        'US',
+        'UK',
+        'Europe'
+      ]
+    ),
+
+    englishFirst: true,
+
+    naturalEnglish: true,
+
+    avoidHindi: true,
+
+    avoidArtificialTranslationStyle: true
   },
 
   /**
+   * ============================================================
    * VIDEO PRODUCTION
+   * ============================================================
    */
+
   videoConfig: {
     width: 1080,
+
     height: 1920,
 
     minDuration: toNumber(
@@ -94,28 +175,38 @@ export const config = {
       30
     ),
 
-    codec: process.env.VIDEO_CODEC || 'libx264',
+    codec:
+      process.env.VIDEO_CODEC ||
+      'libx264',
 
     crf: toNumber(
       process.env.VIDEO_CRF,
-      23
+      21
     ),
 
-    preset: process.env.VIDEO_PRESET || 'medium',
+    preset:
+      process.env.VIDEO_PRESET ||
+      'medium',
 
     pixelFormat:
-      process.env.VIDEO_PIXEL_FORMAT || 'yuv420p',
+      process.env.VIDEO_PIXEL_FORMAT ||
+      'yuv420p',
 
     audioCodec:
-      process.env.AUDIO_CODEC || 'aac',
+      process.env.AUDIO_CODEC ||
+      'aac',
 
     audioBitrate:
-      process.env.AUDIO_BITRATE || '192k'
+      process.env.AUDIO_BITRATE ||
+      '192k'
   },
 
   /**
+   * ============================================================
    * STORY / SCRIPT
+   * ============================================================
    */
+
   scriptConfig: {
     minScenes: toNumber(
       process.env.MIN_SCENES,
@@ -129,12 +220,12 @@ export const config = {
 
     minWords: toNumber(
       process.env.MIN_SCRIPT_WORDS,
-      45
+      65
     ),
 
     maxWords: toNumber(
       process.env.MAX_SCRIPT_WORDS,
-      160
+      155
     ),
 
     wordsPerMinute: toNumber(
@@ -146,19 +237,68 @@ export const config = {
       toBoolean(
         process.env.REQUIRE_ORIGINAL_STORY,
         true
-      )
+      ),
+
+    requireStrongHook: true,
+
+    requireCompleteEnding: true,
+
+    requirePayoff: true,
+
+    avoidFiller: true,
+
+    avoidRepeatedConcepts: true,
+
+    requireSceneNarration: true
   },
 
   /**
-   * VISUAL ENGINE
+   * ============================================================
+   * SCENE DIRECTOR
+   * ============================================================
+   *
+   * Controls the relationship between:
+   * Story -> Narration -> Action -> Visual
    */
+
+  sceneConfig: {
+    requireAction: true,
+
+    requireCharacter: true,
+
+    requireEnvironment: true,
+
+    requireImportantObject: true,
+
+    requireEmotion: true,
+
+    requireVisualPurpose: true,
+
+    requireNarrationVisualMatch: true,
+
+    requireSceneProgression: true,
+
+    avoidIdenticalScenePrompts: true,
+
+    avoidRepeatedVisualAssets: true,
+
+    maxSameAssetUsagePerStory: 1
+  },
+
+  /**
+   * ============================================================
+   * VISUAL ENGINE
+   * ============================================================
+   */
+
   visualConfig: {
     provider:
-      process.env.VISUAL_PROVIDER || 'pexels',
+      process.env.VISUAL_PROVIDER ||
+      'pexels',
 
     minConfidence: toNumber(
       process.env.VISUAL_MIN_CONFIDENCE,
-      0.55
+      0.65
     ),
 
     portraitPreferred:
@@ -171,15 +311,34 @@ export const config = {
       toBoolean(
         process.env.AVOID_DUPLICATE_VISUALS,
         true
-      )
+      ),
+
+    rejectWeakMatches: true,
+
+    requireActionMatch: true,
+
+    requireObjectMatch: true,
+
+    requireEnvironmentMatch: true,
+
+    requireSceneDiversity: true,
+
+    maxVisualReuseRatio: 0,
+
+    candidateLimitPerScene: 45,
+
+    searchQueriesPerScene: 3
   },
 
   /**
+   * ============================================================
    * VOICE ENGINE
+   * ============================================================
    *
    * ElevenLabs remains primary.
-   * Google Cloud and Amazon Polly are backups.
+   * Google Cloud and Amazon Polly remain backups.
    */
+
   voiceConfig: {
     primaryProvider:
       process.env.PRIMARY_TTS_PROVIDER ||
@@ -196,10 +355,12 @@ export const config = {
 
     elevenLabs: {
       apiKey:
-        process.env.ELEVENLABS_API_KEY || '',
+        process.env.ELEVENLABS_API_KEY ||
+        '',
 
       voiceId:
-        process.env.ELEVENLABS_VOICE_ID || '',
+        process.env.ELEVENLABS_VOICE_ID ||
+        '',
 
       model:
         process.env.ELEVENLABS_MODEL ||
@@ -258,13 +419,16 @@ export const config = {
         'us-east-1',
 
       accessKeyId:
-        process.env.AWS_ACCESS_KEY_ID || '',
+        process.env.AWS_ACCESS_KEY_ID ||
+        '',
 
       secretAccessKey:
-        process.env.AWS_SECRET_ACCESS_KEY || '',
+        process.env.AWS_SECRET_ACCESS_KEY ||
+        '',
 
       sessionToken:
-        process.env.AWS_SESSION_TOKEN || '',
+        process.env.AWS_SESSION_TOKEN ||
+        '',
 
       voiceId:
         process.env.POLLY_VOICE_ID ||
@@ -293,8 +457,11 @@ export const config = {
   },
 
   /**
+   * ============================================================
    * BACKGROUND MUSIC
+   * ============================================================
    */
+
   musicConfig: {
     enabled:
       toBoolean(
@@ -308,13 +475,73 @@ export const config = {
 
     volume: toNumber(
       process.env.BACKGROUND_MUSIC_VOLUME,
-      0.10
-    )
+      0.14
+    ),
+
+    voiceDuckVolume: toNumber(
+      process.env.MUSIC_VOICE_DUCK_VOLUME,
+      0.06
+    ),
+
+    fadeInSeconds: toNumber(
+      process.env.MUSIC_FADE_IN_SECONDS,
+      0.8
+    ),
+
+    fadeOutSeconds: toNumber(
+      process.env.MUSIC_FADE_OUT_SECONDS,
+      1.2
+    ),
+
+    requireValidFile: true,
+
+    failOnMissingMusic: true,
+
+    enableDucking: true
   },
 
   /**
-   * QUALITY CONTROL
+   * ============================================================
+   * SUBTITLES / CAPTIONS
+   * ============================================================
    */
+
+  captionConfig: {
+    enabled:
+      toBoolean(
+        process.env.CAPTIONS_ENABLED,
+        true
+      ),
+
+    burnIntoVideo:
+      toBoolean(
+        process.env.BURN_CAPTIONS,
+        true
+      ),
+
+    maxWordsPerLine: toNumber(
+      process.env.CAPTION_MAX_WORDS_PER_LINE,
+      5
+    ),
+
+    maxLines: 2,
+
+    minimumDurationMs: toNumber(
+      process.env.CAPTION_MIN_DURATION_MS,
+      700
+    ),
+
+    safeArea: true,
+
+    mobileOptimized: true
+  },
+
+  /**
+   * ============================================================
+   * QUALITY CONTROL
+   * ============================================================
+   */
+
   qualityConfig: {
     minDuration: toNumber(
       process.env.QUALITY_MIN_DURATION,
@@ -342,6 +569,18 @@ export const config = {
         true
       ),
 
+    requireMusic:
+      toBoolean(
+        process.env.QUALITY_REQUIRE_MUSIC,
+        true
+      ),
+
+    requireCaptions:
+      toBoolean(
+        process.env.QUALITY_REQUIRE_CAPTIONS,
+        true
+      ),
+
     blockHighRisk:
       toBoolean(
         process.env.QUALITY_BLOCK_HIGH_RISK,
@@ -364,12 +603,25 @@ export const config = {
       toBoolean(
         process.env.QUALITY_REPETITION_CHECK,
         true
-      )
+      ),
+
+    semanticVisualCheck: true,
+
+    sceneDiversityCheck: true,
+
+    audioMixCheck: true,
+
+    timingSyncCheck: true,
+
+    finalMediaCheck: true
   },
 
   /**
+   * ============================================================
    * PRODUCTION / RENDER
+   * ============================================================
    */
+
   productionConfig: {
     maxRetries: toNumber(
       process.env.PRODUCTION_MAX_RETRIES,
@@ -385,37 +637,34 @@ export const config = {
       toBoolean(
         process.env.CLEANUP_TEMP_FILES,
         true
-      )
+      ),
+
+    failClosedOnQualityError: true,
+
+    failClosedOnMediaError: true,
+
+    keepFailedArtifacts: true
   },
 
   /**
-   * YOUTUBE SAFETY GATE
+   * ============================================================
+   * YOUTUBE SAFETY
+   * ============================================================
    *
-   * The system should review risky content before publishing.
-   * It must NOT claim guaranteed monetization or policy approval.
+   * Upload/publish automation intentionally disabled.
+   * These checks prepare videos for manual upload.
    */
-  youtubeConfig: {
-    uploadEnabled:
-      toBoolean(
-        process.env.YOUTUBE_UPLOAD_ENABLED,
-        false
-      ),
 
-    publishEnabled:
-      toBoolean(
-        process.env.YOUTUBE_PUBLISH_ENABLED,
-        false
-      ),
+  youtubeConfig: {
+    uploadEnabled: false,
+
+    publishEnabled: false,
 
     defaultPrivacy:
       process.env.YOUTUBE_DEFAULT_PRIVACY ||
       'private',
 
-    requireApproval:
-      toBoolean(
-        process.env.YOUTUBE_REQUIRE_APPROVAL,
-        true
-      ),
+    requireApproval: true,
 
     originalityCheck:
       toBoolean(
