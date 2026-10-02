@@ -28,7 +28,8 @@ import {
   runQualityCheck
 } from './modules/qualityEngine.mjs';
 
-const execFileAsync = promisify(execFile);
+const execFileAsync =
+  promisify(execFile);
 
 // ---------------------------------------------------------
 // DIRECTORIES
@@ -68,18 +69,22 @@ const BATCH_LANES = [
     name: 'Motivation',
     category: 'Motivation'
   },
+
   {
     name: 'Funny',
     category: 'Funny Story'
   },
+
   {
     name: 'Interesting Facts',
     category: 'Amazing Information'
   },
+
   {
     name: 'Mystery',
     category: 'Mystery and Curiosity'
   },
+
   {
     name: 'Emotional Life',
     category: 'Interesting Human Story'
@@ -159,18 +164,6 @@ function parseArgs(argv) {
     topic,
     count
   };
-}
-
-// ---------------------------------------------------------
-// CATEGORY
-// ---------------------------------------------------------
-
-function getCategory() {
-  return (
-    process.env.STORY_CATEGORY ||
-    process.env.CATEGORY ||
-    'Entertainment / Interesting Story'
-  );
 }
 
 // ---------------------------------------------------------
@@ -275,10 +268,13 @@ async function getFileDuration(
       [
         '-v',
         'error',
+
         '-show_entries',
         'format=duration',
+
         '-of',
         'default=noprint_wrappers=1:nokey=1',
+
         filePath
       ]
     );
@@ -452,6 +448,9 @@ async function prepareSceneVisuals(
 
   const visualPaths = [];
 
+  const visualIdentities =
+    new Set();
+
   for (
     let index = 0;
     index < visualResults.length;
@@ -473,6 +472,38 @@ async function prepareSceneVisuals(
       );
     }
 
+    const visualIdentity =
+      typeof visual === 'object'
+        ? visual?.id ||
+          visual?.url ||
+          visual?.videoUrl ||
+          visual?.downloadUrl
+        : visualUrl;
+
+    if (
+      !visualIdentity
+    ) {
+      throw new Error(
+        `[Orchestrator] Scene ${index + 1} visual has no stable identity.`
+      );
+    }
+
+    if (
+      visualIdentities.has(
+        visualIdentity
+      )
+    ) {
+      throw new Error(
+        `[Orchestrator] Duplicate visual identity detected at scene ${
+          index + 1
+        }. Refusing to render.`
+      );
+    }
+
+    visualIdentities.add(
+      visualIdentity
+    );
+
     const outputPath =
       path.join(
         projectVisualDir,
@@ -485,7 +516,9 @@ async function prepareSceneVisuals(
       );
 
     console.log(
-      `[Orchestrator] Downloading visual ${index + 1}/${visualResults.length}...`
+      `[Orchestrator] Downloading visual ${
+        index + 1
+      }/${visualResults.length}...`
     );
 
     await downloadVisual(
@@ -500,6 +533,17 @@ async function prepareSceneVisuals(
 
     visualPaths.push(
       outputPath
+    );
+  }
+
+  if (
+    new Set(
+      visualPaths
+    ).size !==
+    visualPaths.length
+  ) {
+    throw new Error(
+      '[Orchestrator] Duplicate scene visual file detected. Refusing to render.'
     );
   }
 
@@ -634,17 +678,9 @@ async function runProductionQualityCheck(
     typeof runQualityCheck !==
     'function'
   ) {
-    console.warn(
-      '[Orchestrator] QualityEngine export runQualityCheck not available. Continuing with core validation.'
+    throw new Error(
+      '[Orchestrator] QualityEngine export runQualityCheck is not available. Video cannot be approved.'
     );
-
-    return {
-      passed: true,
-      reviewRequired: false,
-      blocked: false,
-      issues: [],
-      skipped: true
-    };
   }
 
   let report;
@@ -663,43 +699,21 @@ async function runProductionQualityCheck(
 
     console.warn(
       error?.message ||
-        error
+      error
     );
 
-    return {
-      passed: true,
-      reviewRequired: true,
-      blocked: false,
-      issues: [
-        {
-          type: 'quality_engine_error',
-          message:
-            error?.message ||
-            String(error)
-        }
-      ],
-      skipped: false,
-      qualityEngineError: true
-    };
+    throw new Error(
+      `[Orchestrator] QualityEngine failed closed: ${
+        error?.message ||
+        error
+      }`
+    );
   }
 
   if (!report) {
-    console.warn(
-      '[Orchestrator] QualityEngine returned no report.'
+    throw new Error(
+      '[Orchestrator] QualityEngine returned no report. Video cannot be approved.'
     );
-
-    return {
-      passed: true,
-      reviewRequired: true,
-      blocked: false,
-      issues: [
-        {
-          type: 'quality_engine_empty_report',
-          message:
-            'QualityEngine returned an empty report.'
-        }
-      ]
-    };
   }
 
   console.log(
@@ -725,10 +739,11 @@ async function runProductionQualityCheck(
     );
 
     for (
-      const issue of report.issues.slice(
-        0,
-        10
-      )
+      const issue of
+        report.issues.slice(
+          0,
+          10
+        )
     ) {
       console.log(
         `- ${
@@ -847,7 +862,7 @@ async function validateFinalVideo(
   const durationDifference =
     Math.abs(
       actualDuration -
-        expectedDuration
+      expectedDuration
     );
 
   if (
@@ -955,6 +970,7 @@ async function generateOneVideo(
               'UK',
               'Europe'
             ],
+
             language:
               'English'
           }
@@ -1053,8 +1069,8 @@ async function generateOneVideo(
   const safeTopic =
     cleanFileName(
       story.title ||
-        topic ||
-        `video-${index + 1}`
+      topic ||
+      `video-${index + 1}`
     );
 
   const finalFileName =
@@ -1346,7 +1362,8 @@ async function main() {
     );
 
     for (
-      const video of successfulVideos
+      const video of
+        successfulVideos
     ) {
       console.log(
         `- Video ${video.index}: ${video.title}`
@@ -1384,7 +1401,8 @@ async function main() {
     );
 
     for (
-      const failure of failedVideos
+      const failure of
+        failedVideos
     ) {
       console.log(
         `- Video ${failure.index} (${failure.lane}): ${failure.error}`
